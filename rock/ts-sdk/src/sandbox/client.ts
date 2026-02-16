@@ -166,21 +166,6 @@ export class Sandbox extends AbstractSandbox {
     }
   }
 
-  /**
-   * Extract header-derived fields from response headers
-   */
-  private extractHeaderFields(headers: Record<string, string>): {
-    cluster: string;
-    requestId: string;
-    eagleeyeTraceid: string;
-  } {
-    return {
-      cluster: headers['x-rock-gateway-target-cluster'] || this.config.cluster || 'N/A',
-      requestId: headers['x-request-id'] || headers['request-id'] || 'N/A',
-      eagleeyeTraceid: headers['eagleeye-traceid'] || 'N/A',
-    };
-  }
-
   // Lifecycle methods
   async start(): Promise<void> {
     logger.info('Starting sandbox...');
@@ -281,19 +266,13 @@ export class Sandbox extends AbstractSandbox {
   async getStatus(): Promise<SandboxStatusResponse> {
     const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
     const headers = this.buildHeaders();
-    const response = await HttpUtils.get<SandboxStatusResponse>(url, headers);
+    const response = await HttpUtils.get<{ status: string; result?: SandboxStatusResponse }>(url, headers);
 
     if (response.status !== 'Success') {
       throw new Error(`Failed to get status: ${JSON.stringify(response)}`);
     }
 
-    const result = response.result;
-    // Extract header info with fallbacks (backward compatible)
-    result.cluster = response.headers['x-rock-gateway-target-cluster'] || this.config.cluster || 'N/A';
-    result.requestId = response.headers['x-request-id'] || response.headers['request-id'] || 'N/A';
-    result.eagleeyeTraceid = response.headers['eagleeye-traceid'] || 'N/A';
-
-    return result;
+    return response.result!;
   }
 
   // Command execution
@@ -319,9 +298,7 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to execute command: ${JSON.stringify(response)}`);
       }
 
-      const result = response.result!;
-      Object.assign(result, this.extractHeaderFields(response.headers));
-      return result;
+      return response.result!;
     } catch (e) {
       throw new Error(`Failed to execute command: ${e}`);
     }
@@ -347,9 +324,7 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to create session: ${JSON.stringify(response)}`);
       }
 
-      const result = response.result!;
-      Object.assign(result, this.extractHeaderFields(response.headers));
-      return result;
+      return response.result!;
     } catch (e) {
       throw new Error(`Failed to create session: ${e}`);
     }
@@ -374,9 +349,7 @@ export class Sandbox extends AbstractSandbox {
         throw new Error(`Failed to close session: ${JSON.stringify(response)}`);
       }
 
-      const result = response.result ?? { sessionType: 'bash' as const };
-      Object.assign(result, this.extractHeaderFields(response.headers));
-      return result;
+      return response.result ?? { sessionType: 'bash' };
     } catch (e) {
       throw new Error(`Failed to close session: ${e}`);
     }
@@ -447,9 +420,7 @@ export class Sandbox extends AbstractSandbox {
       }
 
       // Response is already camelCase (converted by HTTP layer)
-      const result = response.result!;
-      Object.assign(result, this.extractHeaderFields(response.headers));
-      return result;
+      return response.result!;
     } catch (e) {
       throw new Error(`Failed to run in session: ${e}`);
     }
@@ -510,9 +481,6 @@ export class Sandbox extends AbstractSandbox {
         exitCode: 1,
         failureReason: 'PID extraction failed',
         expectString: '',
-        cluster: response.cluster,
-        requestId: response.requestId,
-        eagleeyeTraceid: response.eagleeyeTraceid,
       };
     }
 
@@ -526,9 +494,6 @@ export class Sandbox extends AbstractSandbox {
         exitCode: success ? 0 : 1,
         failureReason: success ? '' : 'Process did not complete successfully',
         expectString: '',
-        cluster: response.cluster,
-        requestId: response.requestId,
-        eagleeyeTraceid: response.eagleeyeTraceid,
       };
     }
 
@@ -546,9 +511,6 @@ export class Sandbox extends AbstractSandbox {
       exitCode: success ? 0 : 1,
       failureReason: success ? '' : 'Process did not complete successfully',
       expectString: '',
-      cluster: outputResult.cluster,
-      requestId: outputResult.requestId,
-      eagleeyeTraceid: outputResult.eagleeyeTraceid,
     };
   }
 
@@ -597,12 +559,11 @@ export class Sandbox extends AbstractSandbox {
 
     const response = await HttpUtils.post<{ status: string }>(url, headers, data);
 
-    const headerFields = this.extractHeaderFields(response.headers);
     if (response.status !== 'Success') {
-      return { success: false, message: `Failed to write file ${request.path}`, ...headerFields };
+      return { success: false, message: `Failed to write file ${request.path}` };
     }
 
-    return { success: true, message: `Successfully write content to file ${request.path}`, ...headerFields };
+    return { success: true, message: `Successfully write content to file ${request.path}` };
   }
 
   async readFile(request: ReadFileRequest): Promise<ReadFileResponse> {
@@ -621,10 +582,7 @@ export class Sandbox extends AbstractSandbox {
       data
     );
 
-    return {
-      content: response.result?.content ?? '',
-      ...this.extractHeaderFields(response.headers),
-    };
+    return { content: response.result?.content ?? '' };
   }
 
   // Upload
@@ -639,7 +597,7 @@ export class Sandbox extends AbstractSandbox {
     try {
       const fs = await import('fs');
       if (!fs.existsSync(sourcePath)) {
-        return { success: false, message: `File not found: ${sourcePath}`, cluster: 'N/A', requestId: 'N/A', eagleeyeTraceid: 'N/A' };
+        return { success: false, message: `File not found: ${sourcePath}` };
       }
 
       const fileBuffer = fs.readFileSync(sourcePath);
@@ -652,14 +610,13 @@ export class Sandbox extends AbstractSandbox {
         { file: [fileName, fileBuffer, 'application/octet-stream'] }
       );
 
-      const headerFields = this.extractHeaderFields(response.headers);
       if (response.status !== 'Success') {
-        return { success: false, message: 'Upload failed', ...headerFields };
+        return { success: false, message: 'Upload failed' };
       }
 
-      return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath}`, ...headerFields };
+      return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath}` };
     } catch (e) {
-      return { success: false, message: `Upload failed: ${e}`, cluster: 'N/A', requestId: 'N/A', eagleeyeTraceid: 'N/A' };
+      return { success: false, message: `Upload failed: ${e}` };
     }
   }
 
