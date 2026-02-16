@@ -18,7 +18,6 @@ describe('HttpUtils case conversion', () => {
     test('converts request body from camelCase to snake_case', async () => {
       const mockPost = jest.fn().mockResolvedValue({
         data: { status: 'Success', result: { sandbox_id: '123' } },
-        headers: {},
       });
       mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
 
@@ -39,7 +38,7 @@ describe('HttpUtils case conversion', () => {
       );
     });
 
-    test('converts response from snake_case to camelCase and returns headers', async () => {
+    test('converts response from snake_case to camelCase', async () => {
       const mockPost = jest.fn().mockResolvedValue({
         data: {
           status: 'Success',
@@ -49,23 +48,16 @@ describe('HttpUtils case conversion', () => {
             is_alive: true,
           },
         },
-        headers: {
-          'x-request-id': 'req-123',
-          'eagleeye-traceid': 'trace-456',
-        },
       });
       mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
 
       interface TestResponse {
-        status: string;
-        result: {
-          sandboxId: string;
-          hostName: string;
-          isAlive: boolean;
-        };
+        sandboxId: string;
+        hostName: string;
+        isAlive: boolean;
       }
 
-      const result = await HttpUtils.post<TestResponse>(
+      const result = await HttpUtils.post<{ status: string; result: TestResponse }>(
         'http://test/api',
         {},
         { sandboxId: 'test-id' }
@@ -73,15 +65,10 @@ describe('HttpUtils case conversion', () => {
 
       // Verify response was converted to camelCase
       expect(result.result).toEqual({
-        status: 'Success',
-        result: {
-          sandboxId: '123',
-          hostName: 'localhost',
-          isAlive: true,
-        },
+        sandboxId: '123',
+        hostName: 'localhost',
+        isAlive: true,
       });
-      expect(result.headers['x-request-id']).toBe('req-123');
-      expect(result.headers['eagleeye-traceid']).toBe('trace-456');
     });
 
     test('handles nested objects in response', async () => {
@@ -96,7 +83,6 @@ describe('HttpUtils case conversion', () => {
             },
           },
         },
-        headers: {},
       });
       mockedAxios.create = jest.fn().mockReturnValue({ post: mockPost });
 
@@ -114,7 +100,7 @@ describe('HttpUtils case conversion', () => {
         {}
       );
 
-      expect(result.result.result.portMapping).toEqual({
+      expect(result.result.portMapping).toEqual({
         httpPort: 8080,
         httpsPort: 8443,
       });
@@ -122,23 +108,17 @@ describe('HttpUtils case conversion', () => {
   });
 
   describe('get', () => {
-    test('converts response from snake_case to camelCase and returns headers', async () => {
+    test('converts response from snake_case to camelCase', async () => {
       const mockGet = jest.fn().mockResolvedValue({
         data: {
-          status: 'Success',
           sandbox_id: '123',
           is_alive: true,
           host_name: 'localhost',
-        },
-        headers: {
-          'x-request-id': 'req-123',
-          'eagleeye-traceid': 'trace-456',
         },
       });
       mockedAxios.create = jest.fn().mockReturnValue({ get: mockGet });
 
       interface TestResponse {
-        status: string;
         sandboxId: string;
         isAlive: boolean;
         hostName: string;
@@ -146,15 +126,11 @@ describe('HttpUtils case conversion', () => {
 
       const result = await HttpUtils.get<TestResponse>('http://test/api', {});
 
-      expect(result.status).toBe('Success');
-      expect(result.result).toEqual({
-        status: 'Success',
+      expect(result).toEqual({
         sandboxId: '123',
         isAlive: true,
         hostName: 'localhost',
       });
-      expect(result.headers['x-request-id']).toBe('req-123');
-      expect(result.headers['eagleeye-traceid']).toBe('trace-456');
     });
   });
 });
