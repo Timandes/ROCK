@@ -4,6 +4,7 @@
 
 import { randomUUID } from 'crypto';
 import { initLogger } from '../logger.js';
+import { raiseForCode, InternalServerRockError } from '../common/exceptions.js';
 import { HttpUtils } from '../utils/http.js';
 import { sleep } from '../utils/retry.js';
 import {
@@ -197,59 +198,61 @@ export class Sandbox extends AbstractSandbox {
     logger.debug(`Calling start_async API: ${url}`);
     logger.debug(`Request data: ${JSON.stringify(data)}`);
 
-    try {
-      const response = await HttpUtils.post<{ sandboxId?: string; hostName?: string; hostIp?: string }>(
-        url,
-        headers,
-        data
-      );
+    const response = await HttpUtils.post<{ sandboxId?: string; hostName?: string; hostIp?: string; code?: number }>(
+      url,
+      headers,
+      data
+    );
 
-      logger.debug(`Start sandbox response: ${JSON.stringify(response)}`);
+    logger.debug(`Start sandbox response: ${JSON.stringify(response)}`);
 
-      if (response.status !== 'Success') {
-        throw new Error(`Failed to start sandbox: ${JSON.stringify(response)}`);
-      }
-
-      // Response is already camelCase (converted by HTTP layer)
-      this.sandboxId = response.result?.sandboxId ?? null;
-      this.hostName = response.result?.hostName ?? null;
-      this.hostIp = response.result?.hostIp ?? null;
-
-      logger.info(`Sandbox ID: ${this.sandboxId}`);
-
-      // Wait for sandbox to be alive
-      // First, wait a bit for the backend to process the start request
-      await sleep(2000);
-
-      const startTime = Date.now();
-      const checkTimeout = 10000; // 10s timeout for each status check
-      const checkInterval = 3000; // 3s between checks
-
-      while (Date.now() - startTime < this.config.startupTimeout * 1000) {
-        try {
-          logger.info(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
-          // Use Promise.race to implement timeout for status check
-          const statusPromise = this.getStatus();
-          const timeoutPromise = new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error('Status check timeout')), checkTimeout)
-          );
-
-          const status = await Promise.race([statusPromise, timeoutPromise]);
-          if (status && status.isAlive) {
-            logger.info('Sandbox is alive');
-            return;
-          }
-        } catch (e) {
-          // Status check may fail temporarily during startup, continue waiting
-          logger.debug(`Status check failed (will retry): ${e}`);
-        }
-        await sleep(checkInterval);
-      }
-
-      throw new Error(`Failed to start sandbox within ${this.config.startupTimeout}s`);
-    } catch (e) {
-      throw new Error(`Failed to start sandbox: ${e}`);
+    if (response.status !== 'Success') {
+      // Check for error code and throw appropriate exception
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to start sandbox: ${JSON.stringify(response)}`);
+      // If no error code, throw generic error
+      throw new Error(`Failed to start sandbox: ${JSON.stringify(response)}`);
     }
+
+    // Response is already camelCase (converted by HTTP layer)
+    this.sandboxId = response.result?.sandboxId ?? null;
+    this.hostName = response.result?.hostName ?? null;
+    this.hostIp = response.result?.hostIp ?? null;
+
+    logger.info(`Sandbox ID: ${this.sandboxId}`);
+
+    // Wait for sandbox to be alive
+    // First, wait a bit for the backend to process the start request
+    await sleep(2000);
+
+    const startTime = Date.now();
+    const checkTimeout = 10000; // 10s timeout for each status check
+    const checkInterval = 3000; // 3s between checks
+
+    while (Date.now() - startTime < this.config.startupTimeout * 1000) {
+      try {
+        logger.info(`Checking status... (elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
+        // Use Promise.race to implement timeout for status check
+        const statusPromise = this.getStatus();
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('Status check timeout')), checkTimeout)
+        );
+
+        const status = await Promise.race([statusPromise, timeoutPromise]);
+        if (status && status.isAlive) {
+          logger.info('Sandbox is alive');
+          return;
+        }
+      } catch (e) {
+        // Status check may fail temporarily during startup, continue waiting
+        logger.debug(`Status check failed (will retry): ${e}`);
+      }
+      await sleep(checkInterval);
+    }
+
+    throw new InternalServerRockError(
+      `Failed to start sandbox within ${this.config.startupTimeout}s, sandbox: ${this.toString()}`
+    );
   }
 
   async stop(): Promise<void> {
@@ -279,10 +282,12 @@ export class Sandbox extends AbstractSandbox {
   async getStatus(): Promise<SandboxStatusResponse> {
     const url = `${this.url}/get_status?sandbox_id=${this.sandboxId}`;
     const headers = this.buildHeaders();
-    const response = await HttpUtils.get<SandboxStatusResponse>(url, headers);
+    const response = await HttpUtils.get<SandboxStatusResponse & { code?: number }>(url, headers);
 
     if (response.status !== 'Success') {
       const errorDetail = response.error ? `, error=${response.error}` : '';
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
       throw new Error(`Failed to get status: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
 
@@ -308,22 +313,20 @@ export class Sandbox extends AbstractSandbox {
       env: command.env,
     };
 
-    try {
-      const response = await HttpUtils.post<CommandResponse>(
-        url,
-        headers,
-        data
-      );
+    const response = await HttpUtils.post<CommandResponse & { code?: number }>(
+      url,
+      headers,
+      data
+    );
 
-      if (response.status !== 'Success') {
-        const errorDetail = response.error ? `, error=${response.error}` : '';
-        throw new Error(`Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
-      }
-
-      return response.result!;
-    } catch (e) {
-      throw new Error(`Failed to execute command: ${e}`);
+    if (response.status !== 'Success') {
+      const errorDetail = response.error ? `, error=${response.error}` : '';
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      throw new Error(`Failed to execute command: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
+
+    return response.result!;
   }
 
   // Session management
@@ -335,22 +338,20 @@ export class Sandbox extends AbstractSandbox {
       ...request,
     };
 
-    try {
-      const response = await HttpUtils.post<CreateSessionResponse>(
-        url,
-        headers,
-        data
-      );
+    const response = await HttpUtils.post<CreateSessionResponse & { code?: number }>(
+      url,
+      headers,
+      data
+    );
 
-      if (response.status !== 'Success') {
-        const errorDetail = response.error ? `, error=${response.error}` : '';
-        throw new Error(`Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
-      }
-
-      return response.result!;
-    } catch (e) {
-      throw new Error(`Failed to create session: ${e}`);
+    if (response.status !== 'Success') {
+      const errorDetail = response.error ? `, error=${response.error}` : '';
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      throw new Error(`Failed to create session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
+
+    return response.result!;
   }
 
   async closeSession(request: CloseSessionRequest): Promise<CloseSessionResponse> {
@@ -361,22 +362,20 @@ export class Sandbox extends AbstractSandbox {
       ...request,
     };
 
-    try {
-      const response = await HttpUtils.post<CloseSessionResponse>(
-        url,
-        headers,
-        data
-      );
+    const response = await HttpUtils.post<CloseSessionResponse & { code?: number }>(
+      url,
+      headers,
+      data
+    );
 
-      if (response.status !== 'Success') {
-        const errorDetail = response.error ? `, error=${response.error}` : '';
-        throw new Error(`Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
-      }
-
-      return response.result ?? { sessionType: 'bash' };
-    } catch (e) {
-      throw new Error(`Failed to close session: ${e}`);
+    if (response.status !== 'Success') {
+      const errorDetail = response.error ? `, error=${response.error}` : '';
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      throw new Error(`Failed to close session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
+
+    return response.result ?? { sessionType: 'bash' };
   }
 
   // Run command in session
@@ -429,26 +428,24 @@ export class Sandbox extends AbstractSandbox {
       timeout: action.timeout,
     };
 
-    try {
-      // Convert timeout from seconds to milliseconds for axios
-      const timeoutMs = action.timeout ? action.timeout * 1000 : undefined;
-      const response = await HttpUtils.post<Observation>(
-        url,
-        headers,
-        data,
-        timeoutMs
-      );
+    // Convert timeout from seconds to milliseconds for axios
+    const timeoutMs = action.timeout ? action.timeout * 1000 : undefined;
+    const response = await HttpUtils.post<Observation & { code?: number }>(
+      url,
+      headers,
+      data,
+      timeoutMs
+    );
 
-      if (response.status !== 'Success') {
-        const errorDetail = response.error ? `, error=${response.error}` : '';
-        throw new Error(`Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
-      }
-
-      // Response is already camelCase (converted by HTTP layer)
-      return response.result!;
-    } catch (e) {
-      throw new Error(`Failed to run in session: ${e}`);
+    if (response.status !== 'Success') {
+      const errorDetail = response.error ? `, error=${response.error}` : '';
+      const code = response.result?.code;
+      raiseForCode(code, `Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
+      throw new Error(`Failed to run in session: status=${response.status}${errorDetail}, result=${JSON.stringify(response.result)}`);
     }
+
+    // Response is already camelCase (converted by HTTP layer)
+    return response.result!;
   }
 
   private async arunWithNohup(
