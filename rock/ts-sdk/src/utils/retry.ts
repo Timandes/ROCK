@@ -22,7 +22,7 @@ export function retryAsync<T>(
   const {
     maxAttempts = 3,
     delaySeconds = 1.0,
-    backoff = 1.0,
+    backoff = 2.0,
     jitter = false,
   } = options;
 
