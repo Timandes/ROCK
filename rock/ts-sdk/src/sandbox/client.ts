@@ -417,16 +417,7 @@ export class Sandbox extends AbstractSandbox {
     const sessionName = session ?? 'default';
 
     if (mode === 'normal') {
-      // Ensure session exists before running command (ignore if already exists)
-      try {
-        await this.createSession({ session: sessionName, startupSource: [], envEnable: false });
-      } catch (e) {
-        if (String(e).includes('already exists')) {
-          // Session already exists, reuse it
-        } else {
-          throw e;
-        }
-      }
+      // Run command directly without pre-creating session (matches Python SDK behavior)
       return this.runInSession({ command: cmd, session: sessionName, timeout });
     }
 
@@ -485,15 +476,14 @@ export class Sandbox extends AbstractSandbox {
     } = options;
 
     const timestamp = Date.now();
-    const tmpSession = session ?? `bash-${timestamp}`;
-
-    // Ensure session exists (ignore if already exists)
-    try {
+    
+    // Only create session if not provided (matches Python SDK behavior)
+    let tmpSession: string;
+    if (session === undefined || session === null) {
+      tmpSession = `bash-${timestamp}`;
       await this.createSession({ session: tmpSession, startupSource: [], envEnable: false });
-    } catch (e) {
-      if (!String(e).includes('already exists')) {
-        throw e;
-      }
+    } else {
+      tmpSession = session;
     }
 
     const tmpFile = outputFile ?? `/tmp/tmp_${timestamp}.out`;
