@@ -53,6 +53,35 @@ describe('retryAsync', () => {
     // Should have waited at least 50ms (0.05s)
     expect(elapsed).toBeGreaterThanOrEqual(40);
   });
+
+  test('should use exponential backoff by default (backoff=2.0)', async () => {
+    // Test that default backoff is 2.0, not 1.0
+    // With backoff=2.0 and delaySeconds=0.05:
+    //   - After 1st failure: wait 0.05s
+    //   - After 2nd failure: wait 0.10s (0.05 * 2)
+    //   - Total: ~0.15s (150ms)
+    // With backoff=1.0:
+    //   - After 1st failure: wait 0.05s
+    //   - After 2nd failure: wait 0.05s (0.05 * 1)
+    //   - Total: ~0.10s (100ms)
+    const fn = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('fail 1'))
+      .mockRejectedValueOnce(new Error('fail 2'))
+      .mockRejectedValue(new Error('fail 3'));
+
+    const startTime = Date.now();
+    await retryAsync(fn, {
+      maxAttempts: 3,
+      delaySeconds: 0.05,
+      // NOT passing backoff - testing default value
+    }).catch(() => {}); // Ignore final error
+    const elapsed = Date.now() - startTime;
+
+    // With exponential backoff (2.0), should wait at least 140ms (0.05 + 0.10 = 0.15s)
+    // With linear backoff (1.0), would only wait about 100ms (0.05 + 0.05 = 0.10s)
+    expect(elapsed).toBeGreaterThanOrEqual(140);
+  });
 });
 
 describe('sleep', () => {
