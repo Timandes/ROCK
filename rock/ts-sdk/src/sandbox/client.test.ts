@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import { Sandbox } from './client.js';
+import { RunMode } from './types.js';
 import {
   BadRequestRockError,
   InternalServerRockError,
@@ -508,6 +509,257 @@ describe('Zod Validation', () => {
       const result = await sandbox.readFile({ path: '/test.txt' });
 
       expect(result.content).toBe('file content');
+    });
+  });
+});
+
+/**
+ * arun() session creation behavior tests
+ * 
+ * These tests verify that arun() matches Python SDK behavior:
+ * - NORMAL mode: do NOT pre-create session, run command directly
+ * - NOHUP mode: only create session when session is NOT provided
+ */
+describe('arun() - session creation behavior (matching Python SDK)', () => {
+  let sandbox: Sandbox;
+  let mockPost: jest.Mock;
+  let mockGet: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPost = jest.fn();
+    mockGet = jest.fn();
+    mockedAxios.create = jest.fn().mockReturnValue({
+      post: mockPost,
+      get: mockGet,
+    });
+
+    sandbox = new Sandbox({
+      image: 'test:latest',
+      startupTimeout: 2,
+    });
+  });
+
+  describe('NORMAL mode', () => {
+    beforeEach(async () => {
+      // Start the sandbox
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should NOT call createSession before running command in NORMAL mode', async () => {
+      // Mock run_in_session response
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: 'command output',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      await sandbox.arun('echo hello', { mode: 'normal', session: 'existing-session' });
+
+      // Should only have called run_in_session, NOT create_session
+      const postCalls = mockPost.mock.calls;
+      const calledEndpoints = postCalls.map((call: unknown[]) => call[0] as string);
+      
+      // Should NOT have called create_session
+      expect(calledEndpoints.some((url: string) => url.includes('create_session'))).toBe(false);
+      // Should have called run_in_session
+      expect(calledEndpoints.some((url: string) => url.includes('run_in_session'))).toBe(true);
+    });
+
+    test('should directly run command without session pre-creation in NORMAL mode', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: 'test output',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      const result = await sandbox.arun('ls -la', { mode: 'normal', session: 'my-session' });
+
+      expect(result.output).toBe('test output');
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe('NOHUP mode', () => {
+    beforeEach(async () => {
+      // Start the sandbox
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            sandbox_id: 'test-id',
+            host_name: 'test-host',
+            host_ip: '127.0.0.1',
+          },
+        },
+        headers: {},
+      });
+      mockGet.mockResolvedValue({
+        data: {
+          status: 'Success',
+          result: { is_alive: true },
+        },
+        headers: {},
+      });
+      await sandbox.start();
+    });
+
+    test('should NOT create session when session is provided in NOHUP mode', async () => {
+      // Mock nohup command response (for PID extraction)
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '__ROCK_PID_START__12345__ROCK_PID_END__',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock kill -0 check (process completed)
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '',
+            exit_code: 1, // Process doesn't exist = completed
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock output file read
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: 'nohup output',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      await sandbox.arun('long-running-command', { 
+        mode: 'nohup', 
+        session: 'existing-nohup-session',
+        waitTimeout: 1,
+        waitInterval: 1,
+      });
+
+      // Should NOT have called create_session since session was provided
+      const postCalls = mockPost.mock.calls;
+      const calledEndpoints = postCalls.map((call: unknown[]) => call[0] as string);
+      
+      expect(calledEndpoints.some((url: string) => url.includes('create_session'))).toBe(false);
+    });
+
+    test('should create session when session is NOT provided in NOHUP mode', async () => {
+      // Mock create_session response
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '',
+            session_type: 'bash',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock nohup command response
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '__ROCK_PID_START__12345__ROCK_PID_END__',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock kill -0 check (process completed)
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '',
+            exit_code: 1,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock output file read
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: 'nohup output',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      await sandbox.arun('long-running-command', { 
+        mode: 'nohup',
+        // session NOT provided
+        waitTimeout: 1,
+        waitInterval: 1,
+      });
+
+      // Should have called create_session since session was NOT provided
+      const postCalls = mockPost.mock.calls;
+      const calledEndpoints = postCalls.map((call: unknown[]) => call[0] as string);
+      
+      expect(calledEndpoints.some((url: string) => url.includes('create_session'))).toBe(true);
     });
   });
 });

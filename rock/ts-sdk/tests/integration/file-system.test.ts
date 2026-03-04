@@ -27,6 +27,9 @@ describe('FileSystem Integration', () => {
     sandbox = new Sandbox(TEST_CONFIG);
     await sandbox.start();
     
+    // Create default session for NORMAL mode commands (new behavior: arun() no longer auto-creates sessions)
+    await sandbox.createSession({ session: 'default', startupSource: [], envEnable: false });
+    
     // Create a temporary directory for test files
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rock-test-'));
   }, 180000); // 3 minutes timeout for sandbox startup
