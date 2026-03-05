@@ -159,6 +159,59 @@ describe('ModelClient timeout and cancellation', () => {
     });
   });
 
+  describe('async file I/O', () => {
+    it('should import readFile from fs/promises (not readFileSync from fs)', async () => {
+      // Read the client.ts source to verify imports
+      const { readFileSync: readSource } = await import('fs');
+      const sourceCode = readSource(require.resolve('./client.js'), 'utf-8');
+
+      // Should import from fs/promises
+      expect(sourceCode).toMatch(/from ['"]fs\/promises['"]/);
+
+      // Should import readFile
+      expect(sourceCode).toMatch(/import\s+\{[^}]*readFile[^}]*\}\s+from\s+['"]fs\/promises['"]/);
+
+      // Should NOT import readFileSync
+      expect(sourceCode).not.toMatch(/readFileSync/);
+    });
+
+    it('should import appendFile from fs/promises (not appendFileSync from fs)', async () => {
+      // Read the client.ts source to verify imports
+      const { readFileSync: readSource } = await import('fs');
+      const sourceCode = readSource(require.resolve('./client.js'), 'utf-8');
+
+      // Should import appendFile from fs/promises
+      expect(sourceCode).toMatch(/import\s+\{[^}]*appendFile[^}]*\}\s+from\s+['"]fs\/promises['"]/);
+
+      // Should NOT import appendFileSync
+      expect(sourceCode).not.toMatch(/appendFileSync/);
+    });
+  });
+
+  describe('JSON parse error handling', () => {
+    it('should throw meaningful error when request line has corrupted JSON', async () => {
+      // Create log file with corrupted JSON in meta section
+      const content = `${REQUEST_START_MARKER}test-request${REQUEST_END_MARKER}{invalid json}\n`;
+      writeFileSync(logFile, content);
+
+      // Should throw "Invalid request line format" immediately
+      // NOT retry until timeout, NOT throw raw SyntaxError
+      await expect(client.popRequest(1, { timeout: 5 })).rejects.toThrow('Invalid request line format');
+    });
+
+    it('should throw meaningful error when response line has corrupted JSON', async () => {
+      // Create log file with request and corrupted response
+      const RESPONSE_START_MARKER = '__RESPONSE_START__';
+      const RESPONSE_END_MARKER = '__RESPONSE_END__';
+      const content = `${REQUEST_START_MARKER}test-request${REQUEST_END_MARKER}{"index":0}\n${RESPONSE_START_MARKER}response${RESPONSE_END_MARKER}{bad}\n`;
+      writeFileSync(logFile, content);
+
+      // pushResponse internally calls parseResponseLine
+      // Should throw "Invalid response line format"
+      await expect(client.pushResponse(1, 'new-response')).rejects.toThrow('Invalid response line format');
+    });
+  });
+
   describe('backward compatibility', () => {
     it('should use default timeout when not specified', async () => {
       // This test verifies backward compatibility
