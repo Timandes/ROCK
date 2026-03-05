@@ -44,7 +44,7 @@ export * from './envs/index.js';
 
 // Sandbox - selective exports
 export { Sandbox, SandboxGroup } from './sandbox/client.js';
-export type { RunModeType as SandboxRunModeType } from './sandbox/types.js';
+export type { RunModeType as SandboxRunModeType } from './common/constants.js';
 export {
   SandboxConfigSchema,
   SandboxGroupConfigSchema,
@@ -54,11 +54,10 @@ export {
 export type { SandboxConfig, SandboxGroupConfig, BaseConfig } from './sandbox/config.js';
 export { Deploy } from './sandbox/deploy.js';
 export { LinuxFileSystem } from './sandbox/file_system.js';
-export { Network } from './sandbox/network.js';
+export { Network, SpeedupType } from './sandbox/network.js';
 export { Process } from './sandbox/process.js';
 export { LinuxRemoteUser } from './sandbox/remote_user.js';
 export { withTimeLogging, arunWithRetry, extractNohupPid as extractNohupPidFromSandbox } from './sandbox/utils.js';
-export { SpeedupType } from './sandbox/types.js';
 
 // Model
 export * from './model/index.js';

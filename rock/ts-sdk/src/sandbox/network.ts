@@ -5,10 +5,18 @@
 import { initLogger } from '../logger.js';
 import type { Observation } from '../types/responses.js';
 import type { Sandbox } from './client.js';
-import { SpeedupType } from './types.js';
 import { validateUrl, validateIpAddress, shellQuote } from '../utils/shell.js';
 
 const logger = initLogger('rock.sandbox.network');
+
+/**
+ * Speedup type enum
+ */
+export enum SpeedupType {
+  APT = 'apt',
+  PIP = 'pip',
+  GITHUB = 'github',
+}
 
 /**
  * Network management for sandbox

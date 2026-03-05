@@ -19,7 +19,7 @@ import { Network } from './network.js';
 import { Process } from './process.js';
 import { LinuxRemoteUser } from './remote_user.js';
 import { extractNohupPid } from './utils.js';
-import { RunModeType, RunMode as RunModeEnum } from './types.js';
+import { RunModeType, RunMode as RunModeEnum } from '../common/constants.js';
 export type { RunModeType };
 export { RunModeEnum as RunMode };
 import {

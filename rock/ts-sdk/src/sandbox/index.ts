@@ -10,4 +10,8 @@ export * from './network.js';
 export * from './process.js';
 export * from './remote_user.js';
 export * from './utils.js';
-export * from './types.js';
+
+// Re-export types from their new locations
+export { SpeedupType } from './network.js';
+export type { RunModeType } from '../common/constants.js';
+export { RunMode } from '../common/constants.js';
