@@ -2,8 +2,7 @@
  * Tests for Network - Network management for sandbox
  */
 
-import { Network } from './network.js';
-import { SpeedupType } from './types.js';
+import { Network, SpeedupType } from './network.js';
 import type { Observation } from '../types/responses.js';
 
 /**

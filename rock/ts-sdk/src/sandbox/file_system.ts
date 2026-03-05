@@ -9,7 +9,7 @@ import { initLogger } from '../logger.js';
 import type { Observation, CommandResponse } from '../types/responses.js';
 import type { ChownRequest, ChmodRequest } from '../types/requests.js';
 import type { AbstractSandbox } from './client.js';
-import { RunMode } from './types.js';
+import { RunMode } from '../common/constants.js';
 import { validatePath, validateUsername, validateChmodMode, shellQuote } from '../utils/shell.js';
 
 const logger = initLogger('rock.sandbox.fs');
