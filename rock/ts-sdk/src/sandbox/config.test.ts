@@ -109,3 +109,47 @@ describe('Config uses envVars (not hardcoded)', () => {
     expect(config.startRetryTimes).toBe(envVars.ROCK_DEFAULT_START_RETRY_TIMES);
   });
 });
+
+describe('Config lazy evaluation of env vars', () => {
+  // This test verifies that env var defaults are evaluated lazily (at parse time)
+  // not eagerly (at module load time). This allows env vars to be changed
+  // dynamically and have the new values reflected in schema defaults.
+
+  test('should use current env var value at parse time, not captured at import', () => {
+    // Save original values
+    const originalBaseUrl = process.env.ROCK_BASE_URL;
+    const originalImage = process.env.ROCK_DEFAULT_IMAGE;
+
+    try {
+      // Set initial values
+      process.env.ROCK_BASE_URL = 'http://original:8080';
+      process.env.ROCK_DEFAULT_IMAGE = 'original:latest';
+
+      // Parse config - should use current env values
+      const config1 = createSandboxConfig({});
+      expect(config1.baseUrl).toBe('http://original:8080');
+      expect(config1.image).toBe('original:latest');
+
+      // Change env vars AFTER module is loaded
+      process.env.ROCK_BASE_URL = 'http://changed:9090';
+      process.env.ROCK_DEFAULT_IMAGE = 'changed:latest';
+
+      // Parse again - should use NEW env values, not stale captured values
+      const config2 = createSandboxConfig({});
+      expect(config2.baseUrl).toBe('http://changed:9090');
+      expect(config2.image).toBe('changed:latest');
+    } finally {
+      // Restore original values
+      if (originalBaseUrl === undefined) {
+        delete process.env.ROCK_BASE_URL;
+      } else {
+        process.env.ROCK_BASE_URL = originalBaseUrl;
+      }
+      if (originalImage === undefined) {
+        delete process.env.ROCK_DEFAULT_IMAGE;
+      } else {
+        process.env.ROCK_DEFAULT_IMAGE = originalImage;
+      }
+    }
+  });
+});
