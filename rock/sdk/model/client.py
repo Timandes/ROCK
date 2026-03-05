@@ -4,6 +4,7 @@ import logging
 import time
 from pathlib import Path
 
+from rock import env_vars
 from rock.sdk.model.server.config import (
     LOG_FILE,
     REQUEST_END_MARKER,
@@ -14,9 +15,6 @@ from rock.sdk.model.server.config import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Default timeout for polling operations (in seconds)
-DEFAULT_POLL_TIMEOUT = 60.0
 
 
 class ModelClient:
@@ -61,12 +59,13 @@ class ModelClient:
         with open(self.log_file, "a") as f:
             f.write(content)
 
-    async def pop_request(self, index: int, timeout: float | None = DEFAULT_POLL_TIMEOUT) -> str:
+    async def pop_request(self, index: int, timeout: float | None = None) -> str:
         """Pop the request with the given index from the log file.
 
         Args:
             index: The index of the request to pop.
-            timeout: Maximum time to wait in seconds. None means no timeout.
+            timeout: Maximum time to wait in seconds. None means use ROCK_MODEL_CLIENT_POLL_TIMEOUT
+                     environment variable, or no timeout if not set.
 
         Returns:
             The request JSON string.
@@ -75,6 +74,8 @@ class ModelClient:
             TimeoutError: If timeout expires before the request is found.
             asyncio.CancelledError: If the operation is cancelled.
         """
+        if timeout is None:
+            timeout = env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT
         start_time = time.monotonic()
         while True:
             if timeout is not None and time.monotonic() - start_time > timeout:
@@ -129,16 +130,19 @@ class ModelClient:
                 line_index -= 1
             return None
 
-    async def wait_for_first_request(self, timeout: float | None = DEFAULT_POLL_TIMEOUT):
+    async def wait_for_first_request(self, timeout: float | None = None):
         """Wait for the first request to be written to the log file.
 
         Args:
-            timeout: Maximum time to wait in seconds. None means no timeout.
+            timeout: Maximum time to wait in seconds. None means use ROCK_MODEL_CLIENT_POLL_TIMEOUT
+                     environment variable, or no timeout if not set.
 
         Raises:
             TimeoutError: If timeout expires before the first request appears.
             asyncio.CancelledError: If the operation is cancelled.
         """
+        if timeout is None:
+            timeout = env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT
         start_time = time.monotonic()
         while True:
             if timeout is not None and time.monotonic() - start_time > timeout:

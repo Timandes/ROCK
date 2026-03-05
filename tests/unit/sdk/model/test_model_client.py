@@ -59,6 +59,42 @@ async def test_wait_for_first_request_raises_timeout_error_when_timeout_expires(
         await client.wait_for_first_request(timeout=0.5)
 
 
+# ==================== Environment Variable Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_pop_request_uses_env_var_for_default_timeout(monkeypatch):
+    """Test that pop_request uses ROCK_MODEL_CLIENT_POLL_TIMEOUT env var for default timeout."""
+    # Set environment variable to a small value for testing
+    monkeypatch.setenv("ROCK_MODEL_CLIENT_POLL_TIMEOUT", "0.5")
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
+        # Write a request with index 1, but we'll ask for index 2
+        f.write(f'{REQUEST_START_MARKER}{{"model": "gpt-4"}}{REQUEST_END_MARKER}{{"index": 1}}\n')
+        log_file = f.name
+
+    try:
+        client = ModelClient(log_file_name=log_file)
+        # Should timeout after 0.5 seconds (from env var) when calling without explicit timeout
+        with pytest.raises(TimeoutError, match="pop_request timed out"):
+            await client.pop_request(index=2)
+    finally:
+        Path(log_file).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_first_request_uses_env_var_for_default_timeout(monkeypatch):
+    """Test that wait_for_first_request uses ROCK_MODEL_CLIENT_POLL_TIMEOUT env var for default timeout."""
+    # Set environment variable to a small value for testing
+    monkeypatch.setenv("ROCK_MODEL_CLIENT_POLL_TIMEOUT", "0.5")
+
+    # Use a non-existent file
+    client = ModelClient(log_file_name="/non/existent/path/file.log")
+    # Should timeout after 0.5 seconds (from env var) when calling without explicit timeout
+    with pytest.raises(TimeoutError, match="wait_for_first_request timed out"):
+        await client.wait_for_first_request()
+
+
 # ==================== Cancellation Tests ====================
 
 
