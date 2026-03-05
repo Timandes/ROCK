@@ -2,7 +2,8 @@
  * Model client for LLM interaction
  */
 
-import { existsSync, readFileSync, appendFileSync } from 'fs';
+import { existsSync } from 'fs';
+import { readFile, appendFile } from 'fs/promises';
 import { initLogger } from '../logger.js';
 import { envVars } from '../env_vars.js';
 import { sleep } from '../utils/retry.js';
@@ -82,7 +83,7 @@ export class ModelClient {
     const lastResponseLine = await this.readLastResponseLine();
 
     if (lastResponseLine === null) {
-      this.appendResponse(content);
+      await this.appendResponse(content);
       return;
     }
 
@@ -98,7 +99,7 @@ export class ModelClient {
       return;
     }
 
-    this.appendResponse(content);
+    await this.appendResponse(content);
   }
 
   /**
@@ -139,9 +140,15 @@ export class ModelClient {
         logger.debug(`Last request is not the index ${index} we want, waiting...`);
         await sleep(1000);
       } catch (e) {
-        // Re-throw abort errors
-        if (e instanceof Error && e.message.includes('aborted')) {
-          throw e;
+        // Re-throw abort errors and parse errors immediately
+        if (e instanceof Error) {
+          if (e.message.includes('aborted')) {
+            throw e;
+          }
+          // Re-throw parse errors (invalid format) immediately - don't retry
+          if (e.message.includes('Invalid request line format')) {
+            throw e;
+          }
         }
         // For other errors (like file not found), wait and retry
         logger.debug(`Error reading request: ${e}, waiting...`);
@@ -177,7 +184,7 @@ export class ModelClient {
         continue;
       }
 
-      const content = readFileSync(this.logFile, 'utf-8');
+      const content = await readFile(this.logFile, 'utf-8');
       const lines = content.split('\n').filter((l) => l.trim());
 
       if (lines.length === 0) {
@@ -195,25 +202,35 @@ export class ModelClient {
       return { requestJson: SESSION_END_MARKER, meta: {} };
     }
 
-    const parts = lineContent.split(REQUEST_END_MARKER);
-    const metaJson = parts[1] ?? '';
-    const requestJson = parts[0]?.split(REQUEST_START_MARKER)[1] ?? '';
-    const meta = JSON.parse(metaJson);
+    try {
+      const parts = lineContent.split(REQUEST_END_MARKER);
+      const metaJson = parts[1] ?? '';
+      const requestJson = parts[0]?.split(REQUEST_START_MARKER)[1] ?? '';
+      const meta = JSON.parse(metaJson);
 
-    return { requestJson, meta };
+      return { requestJson, meta };
+    } catch (e) {
+      logger.error(`Failed to parse request line: ${lineContent}, error: ${e}`);
+      throw new Error(`Invalid request line format: ${e}`);
+    }
   }
 
   private parseResponseLine(lineContent: string): { responseJson: string; meta: Record<string, unknown> } {
-    const parts = lineContent.split(RESPONSE_END_MARKER);
-    const metaJson = parts[1] ?? '';
-    const responseJson = parts[0]?.split(RESPONSE_START_MARKER)[1] ?? '';
-    const meta = JSON.parse(metaJson);
+    try {
+      const parts = lineContent.split(RESPONSE_END_MARKER);
+      const metaJson = parts[1] ?? '';
+      const responseJson = parts[0]?.split(RESPONSE_START_MARKER)[1] ?? '';
+      const meta = JSON.parse(metaJson);
 
-    return { responseJson, meta };
+      return { responseJson, meta };
+    } catch (e) {
+      logger.error(`Failed to parse response line: ${lineContent}, error: ${e}`);
+      throw new Error(`Invalid response line format: ${e}`);
+    }
   }
 
   private async readLastRequestLine(): Promise<string> {
-    const content = readFileSync(this.logFile, 'utf-8');
+    const content = await readFile(this.logFile, 'utf-8');
     const lines = content.split('\n').filter((l) => l.trim());
 
     for (let i = lines.length - 1; i >= 0; i--) {
@@ -227,7 +244,7 @@ export class ModelClient {
   }
 
   private async readLastResponseLine(): Promise<string | null> {
-    const content = readFileSync(this.logFile, 'utf-8');
+    const content = await readFile(this.logFile, 'utf-8');
     const lines = content.split('\n').filter((l) => l.trim());
 
     for (let i = lines.length - 1; i >= 0; i--) {
@@ -240,8 +257,8 @@ export class ModelClient {
     return null;
   }
 
-  private appendResponse(content: string): void {
-    appendFileSync(this.logFile, content);
+  private async appendResponse(content: string): Promise<void> {
+    await appendFile(this.logFile, content);
   }
 
   private constructResponse(lastResponse: string, index: number): string {
