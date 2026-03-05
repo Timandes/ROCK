@@ -9,8 +9,11 @@ import { RockEnv } from './rock_env.js';
  *
  * @param envId - Environment ID
  * @param options - Environment options
- * @returns RockEnv instance
+ * @returns Promise resolving to RockEnv instance
  */
-export function make(envId: string, options?: Record<string, unknown>): RockEnv {
-  return new RockEnv({ envId, ...options });
+export async function make(
+  envId: string,
+  options?: Record<string, unknown>
+): Promise<RockEnv> {
+  return RockEnv.create({ envId, ...options });
 }
