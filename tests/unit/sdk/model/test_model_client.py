@@ -1,9 +1,11 @@
 import asyncio
+import inspect
 import tempfile
 from pathlib import Path
 
 import pytest
 
+from rock import env_vars
 from rock.sdk.model.client import ModelClient
 from rock.sdk.model.server.config import REQUEST_END_MARKER, REQUEST_START_MARKER
 
@@ -59,40 +61,23 @@ async def test_wait_for_first_request_raises_timeout_error_when_timeout_expires(
         await client.wait_for_first_request(timeout=0.5)
 
 
-# ==================== Environment Variable Tests ====================
+# ==================== Function Signature Tests ====================
 
 
-@pytest.mark.asyncio
-async def test_pop_request_uses_env_var_for_default_timeout(monkeypatch):
-    """Test that pop_request uses ROCK_MODEL_CLIENT_POLL_TIMEOUT env var for default timeout."""
-    # Set environment variable to a small value for testing
-    monkeypatch.setenv("ROCK_MODEL_CLIENT_POLL_TIMEOUT", "0.5")
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-        # Write a request with index 1, but we'll ask for index 2
-        f.write(f'{REQUEST_START_MARKER}{{"model": "gpt-4"}}{REQUEST_END_MARKER}{{"index": 1}}\n')
-        log_file = f.name
-
-    try:
-        client = ModelClient(log_file_name=log_file)
-        # Should timeout after 0.5 seconds (from env var) when calling without explicit timeout
-        with pytest.raises(TimeoutError, match="pop_request timed out"):
-            await client.pop_request(index=2)
-    finally:
-        Path(log_file).unlink(missing_ok=True)
+def test_pop_request_timeout_default_is_from_env_vars():
+    """Test that pop_request timeout parameter default is env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT."""
+    sig = inspect.signature(ModelClient.pop_request)
+    timeout_param = sig.parameters["timeout"]
+    # The default value should equal env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT (evaluated at import time)
+    assert timeout_param.default == env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT
 
 
-@pytest.mark.asyncio
-async def test_wait_for_first_request_uses_env_var_for_default_timeout(monkeypatch):
-    """Test that wait_for_first_request uses ROCK_MODEL_CLIENT_POLL_TIMEOUT env var for default timeout."""
-    # Set environment variable to a small value for testing
-    monkeypatch.setenv("ROCK_MODEL_CLIENT_POLL_TIMEOUT", "0.5")
-
-    # Use a non-existent file
-    client = ModelClient(log_file_name="/non/existent/path/file.log")
-    # Should timeout after 0.5 seconds (from env var) when calling without explicit timeout
-    with pytest.raises(TimeoutError, match="wait_for_first_request timed out"):
-        await client.wait_for_first_request()
+def test_wait_for_first_request_timeout_default_is_from_env_vars():
+    """Test that wait_for_first_request timeout parameter default is env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT."""
+    sig = inspect.signature(ModelClient.wait_for_first_request)
+    timeout_param = sig.parameters["timeout"]
+    # The default value should equal env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT (evaluated at import time)
+    assert timeout_param.default == env_vars.ROCK_MODEL_CLIENT_POLL_TIMEOUT
 
 
 # ==================== Cancellation Tests ====================
