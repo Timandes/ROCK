@@ -4,7 +4,7 @@
 
 import axios from 'axios';
 import { Sandbox } from './client.js';
-import { RunMode } from './types.js';
+import { RunMode } from '../common/constants.js';
 import {
   BadRequestRockError,
   InternalServerRockError,

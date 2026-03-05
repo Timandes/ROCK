@@ -5,7 +5,7 @@
 import { initLogger } from '../logger.js';
 import { sleep } from '../utils/retry.js';
 import type { Sandbox } from './client.js';
-import type { RunModeType } from './types.js';
+import type { RunModeType } from '../common/constants.js';
 import type { Observation } from '../types/responses.js';
 
 const logger = initLogger('rock.sandbox.utils');
