@@ -2,8 +2,8 @@
  * RockEnv - Gym-style environment interface
  */
 
-import axios, { AxiosInstance } from 'axios';
 import { envVars } from '../env_vars.js';
+import { HttpUtils } from '../utils/http.js';
 import { initLogger } from '../logger.js';
 
 const logger = initLogger('rock.envs');
@@ -38,31 +38,49 @@ export class RockEnv {
   private readonly envId: string;
   private sandboxId: string | null = null;
   private isClosed = false;
-  private client: AxiosInstance;
 
-  constructor(config: RockEnvConfig) {
+  private constructor(config: RockEnvConfig) {
     this.envId = config.envId;
-    this.client = axios.create({
-      baseURL: envVars.ROCK_BASE_URL,
-      timeout: 300000,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  }
 
+  /**
+   * Create and initialize a RockEnv instance
+   *
+   * @param config - Environment configuration
+   * @returns Initialized RockEnv instance
+   */
+  static async create(config: RockEnvConfig): Promise<RockEnv> {
+    const env = new RockEnv(config);
     try {
-      this.initializeEnvironment();
+      await env.initializeEnvironment();
     } catch (e) {
       throw new Error(`Failed to initialize environment: ${e}`);
     }
+    return env;
+  }
+
+  /**
+   * Get the sandbox ID
+   */
+  getSandboxId(): string | null {
+    return this.sandboxId;
   }
 
   /**
    * Initialize environment instance
    */
-  private initializeEnvironment(): void {
+  private async initializeEnvironment(): Promise<void> {
     logger.debug(`Initializing environment: ${this.envId}`);
-    // This would normally call the admin API
-    // For now, we'll leave the implementation as a stub
-    // that can be filled in based on actual API requirements
+    const response = await HttpUtils.post<{ sandboxId: string }>(
+      `${envVars.ROCK_BASE_URL}/apis/v1/envs/gem/make`,
+      { 'Content-Type': 'application/json' },
+      { envId: this.envId }
+    );
+
+    this.sandboxId = response.result?.sandboxId ?? null;
+    if (!this.sandboxId) {
+      throw new Error('Failed to get environment instance ID');
+    }
   }
 
   /**
@@ -74,20 +92,19 @@ export class RockEnv {
   async step(action: string | number): Promise<StepResult> {
     this.ensureNotClosed();
 
-    const params = {
-      sandbox_id: this.sandboxId,
-      action,
-    };
+    const response = await HttpUtils.post<{
+      observation: unknown;
+      reward: number;
+      terminated: boolean;
+      truncated: boolean;
+      info: Record<string, unknown>;
+    }>(
+      `${envVars.ROCK_BASE_URL}/apis/v1/envs/gem/step`,
+      { 'Content-Type': 'application/json' },
+      { sandboxId: this.sandboxId, action }
+    );
 
-    try {
-      const response = await this.client.post(
-        '/apis/v1/envs/gem/step',
-        params
-      );
-      return this.parseStepResult(response.data);
-    } catch (e) {
-      throw new Error(`Failed to execute step with action ${action}: ${e}`);
-    }
+    return this.parseStepResult(response.result);
   }
 
   /**
@@ -99,20 +116,21 @@ export class RockEnv {
   async reset(seed?: number): Promise<ResetResult> {
     this.ensureNotClosed();
 
-    const params: Record<string, unknown> = { sandbox_id: this.sandboxId };
+    const params: Record<string, unknown> = { sandboxId: this.sandboxId };
     if (seed !== undefined) {
       params.seed = seed;
     }
 
-    try {
-      const response = await this.client.post(
-        '/apis/v1/envs/gem/reset',
-        params
-      );
-      return this.parseResetResult(response.data);
-    } catch (e) {
-      throw new Error(`Failed to reset environment: ${e}`);
-    }
+    const response = await HttpUtils.post<{
+      observation: unknown;
+      info: Record<string, unknown>;
+    }>(
+      `${envVars.ROCK_BASE_URL}/apis/v1/envs/gem/reset`,
+      { 'Content-Type': 'application/json' },
+      params
+    );
+
+    return this.parseResetResult(response.result);
   }
 
   /**
@@ -124,9 +142,11 @@ export class RockEnv {
     }
 
     try {
-      await this.client.post('/apis/v1/envs/gem/close', {
-        sandbox_id: this.sandboxId,
-      });
+      await HttpUtils.post(
+        `${envVars.ROCK_BASE_URL}/apis/v1/envs/gem/close`,
+        { 'Content-Type': 'application/json' },
+        { sandboxId: this.sandboxId }
+      );
     } catch (e) {
       throw new Error(`Failed to close environment: ${e}`);
     } finally {
@@ -138,21 +158,39 @@ export class RockEnv {
   /**
    * Parse step result from API response
    */
-  private parseStepResult(data: Record<string, unknown>): StepResult {
+  private parseStepResult(
+    data:
+      | {
+          observation: unknown;
+          reward: number;
+          terminated: boolean;
+          truncated: boolean;
+          info: Record<string, unknown>;
+        }
+      | undefined
+  ): StepResult {
+    if (!data) {
+      throw new Error('Invalid step result: no data');
+    }
     return [
       data.observation,
-      data.reward as number,
-      data.terminated as boolean,
-      data.truncated as boolean,
-      data.info as Record<string, unknown>,
+      data.reward,
+      data.terminated,
+      data.truncated,
+      data.info,
     ];
   }
 
   /**
    * Parse reset result from API response
    */
-  private parseResetResult(data: Record<string, unknown>): ResetResult {
-    return [data.observation, data.info as Record<string, unknown>];
+  private parseResetResult(
+    data: { observation: unknown; info: Record<string, unknown> } | undefined
+  ): ResetResult {
+    if (!data) {
+      throw new Error('Invalid reset result: no data');
+    }
+    return [data.observation, data.info];
   }
 
   /**
