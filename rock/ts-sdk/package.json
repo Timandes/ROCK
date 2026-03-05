@@ -60,10 +60,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Timandes/ROCK.git"
+    "url": "https://github.com/alibaba/ROCK.git"
   },
   "bugs": {
-    "url": "https://github.com/Timandes/ROCK/issues"
+    "url": "https://github.com/alibaba/ROCK/issues"
   },
-  "homepage": "https://github.com/Timandes/ROCK#readme"
+  "homepage": "https://github.com/alibaba/ROCK#readme"
 }
