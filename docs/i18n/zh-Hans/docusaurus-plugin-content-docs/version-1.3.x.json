@@ -11,6 +11,10 @@
     "message": "用户指南",
     "description": "The label for category 'User Guides' in sidebar 'tutorialSidebar'"
   },
+  "sidebar.tutorialSidebar.category.Administrator Guide": {
+    "message": "运维指南",
+    "description": "The label for category 'Administrator Guide' in sidebar 'tutorialSidebar'"
+  },
   "sidebar.tutorialSidebar.category.References": {
     "message": "参考",
     "description": "The label for category 'References' in sidebar 'tutorialSidebar'"
