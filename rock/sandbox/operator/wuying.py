@@ -211,9 +211,9 @@ class WuyingOperator(AbstractOperator):
         # Get port_mapping from Redis cache (preserved from submit())
         port_mapping = await self._get_port_mapping(sandbox_id)
 
-        # If running and has IP, ensure rocklet is started
+        # If running and has IP, start rocklet in background (non-blocking)
         if state == State.RUNNING and host_ip:
-            await self._ensure_rocklet_running(sandbox_id, desktop_id, host_ip)
+            asyncio.create_task(self._ensure_rocklet_running(sandbox_id, desktop_id, host_ip))
 
         return SandboxInfo(
             sandbox_id=sandbox_id,
