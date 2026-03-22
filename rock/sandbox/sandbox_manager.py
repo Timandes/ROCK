@@ -221,6 +221,9 @@ class SandboxManager(BaseManager):
     @monitor_sandbox_operation()
     async def get_status(self, sandbox_id) -> SandboxStatusResponse:
         sandbox_info: SandboxInfo = await self._operator.get_status(sandbox_id=sandbox_id)
+        # Merge with cached info from Redis (e.g., image, cpus, memory from submit())
+        if self._redis_provider:
+            sandbox_info = await self.build_sandbox_info_from_redis(sandbox_id, sandbox_info)
         is_alive = sandbox_info.get("state") == State.RUNNING
         self._update_sandbox_alive_info(sandbox_info, is_alive)
         if self._redis_provider:
@@ -248,9 +251,9 @@ class SandboxManager(BaseManager):
         sandbox_status = await self._redis_provider.json_get(alive_sandbox_key(sandbox_id), "$")
         if sandbox_status and len(sandbox_status) > 0:
             sandbox_info = sandbox_status[0]
-            remote_info = {
-                k: v for k, v in deployment_info.items() if k in ["phases", "port_mapping", "alive", "state"]
-            }
+            # Merge dynamic fields from operator response
+            dynamic_fields = ["phases", "port_mapping", "alive", "state", "host_ip", "host_name"]
+            remote_info = {k: v for k, v in deployment_info.items() if k in dynamic_fields and v}
             if "phases" in remote_info and remote_info["phases"]:
                 remote_info["phases"] = {name: phase.to_dict() for name, phase in remote_info["phases"].items()}
             sandbox_info.update(remote_info)

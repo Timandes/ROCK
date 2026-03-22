@@ -13,6 +13,7 @@ class SandboxInfo(TypedDict, total=False):
     namespace: str
     cluster_name: str
     sandbox_id: str
+    desktop_id: str  # ECD-generated desktop ID (for Wuying operator)
     auth_token: str
     rock_authorization_encrypted: str
     phases: dict[str, PhaseStatus]
