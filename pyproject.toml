@@ -50,6 +50,8 @@ admin = [
     "fakeredis[json]",
     "kubernetes>=35.0.0",  # For K8S operator support
     "aiolimiter>=1.2.1",  # For rate limiting
+    "alibabacloud-ecd20200930>=1.0.0",  # For Wuying (阿里云云电脑) operator support
+    "paramiko>=3.0.0",  # For SSH connection in Wuying deployment
 ]
 
 rocklet = [

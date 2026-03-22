@@ -157,6 +157,90 @@ class K8sConfig:
 
 
 @dataclass
+class WuyingPoolConfig:
+    """Pool configuration for Wuying (阿里云云电脑) operator.
+
+    Maps user-requested image/spec to a pre-configured bundle.
+    """
+
+    image: str
+    """User-facing image name (e.g., 'python:3.11')."""
+
+    bundle_id: str
+    """阿里云云电脑 bundle ID."""
+
+    cpus: float
+    """CPU cores for matching."""
+
+    memory: str
+    """Memory for matching (e.g., '4g', '8g')."""
+
+    desktop_type: str | None = None
+    """阿里云规格类型 (e.g., 'eds.enterprise_office.2c4g')."""
+
+    ports: dict[str, int] = field(default_factory=dict)
+    """Port configuration."""
+
+    def __post_init__(self):
+        # Ensure ports has default values
+        default_ports = {"proxy": 8000, "server": 8080, "ssh": 22}
+        for key, value in default_ports.items():
+            if key not in self.ports:
+                self.ports[key] = value
+
+
+@dataclass
+class WuyingConfig:
+    """Configuration for Wuying (阿里云云电脑) operator."""
+
+    region_id: str = "cn-hangzhou"
+    """阿里云地域 ID."""
+
+    endpoint: str = "ecd.cn-hangzhou.aliyuncs.com"
+    """阿里云 ECD API endpoint."""
+
+    office_site_id: str = ""
+    """办公网络 ID."""
+
+    policy_group_id: str = ""
+    """策略组 ID."""
+
+    # Pool configurations: pool_name -> WuyingPoolConfig
+    pools: dict[str, WuyingPoolConfig] = field(default_factory=dict)
+
+    # SSH credentials (config file level)
+    ssh_username: str = "user"
+    """SSH 用户名 (配置文件级别，默认: 'user')."""
+
+    ssh_password: str = "password"
+    """SSH 密码 (配置文件级别，默认: 'password')."""
+
+    def get_ssh_credentials(self) -> tuple[str, str]:
+        """Get SSH credentials with priority: env > config > default.
+
+        Returns:
+            tuple: (username, password)
+        """
+        import os
+
+        username = os.environ.get("ROCK_WUYING_SSH_USERNAME", self.ssh_username)
+        password = os.environ.get("ROCK_WUYING_SSH_PASSWORD", self.ssh_password)
+
+        return username, password
+
+    def __post_init__(self):
+        # Convert pools dict to WuyingPoolConfig objects if needed
+        if self.pools and isinstance(self.pools, dict):
+            converted = {}
+            for name, config in self.pools.items():
+                if isinstance(config, dict):
+                    converted[name] = WuyingPoolConfig(**config)
+                else:
+                    converted[name] = config
+            self.pools = converted
+
+
+@dataclass
 class RuntimeConfig:
     enable_auto_clear: bool = False
     project_root: str = field(default_factory=lambda: env_vars.ROCK_PROJECT_ROOT)
@@ -195,6 +279,7 @@ class RuntimeConfig:
 class RockConfig:
     ray: RayConfig = field(default_factory=RayConfig)
     k8s: K8sConfig = field(default_factory=K8sConfig)
+    wuying: WuyingConfig = field(default_factory=WuyingConfig)
     warmup: WarmupConfig = field(default_factory=WarmupConfig)
     nacos: NacosConfig = field(default_factory=NacosConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
@@ -228,6 +313,8 @@ class RockConfig:
             kwargs["ray"] = RayConfig(**config["ray"])
         if "k8s" in config:
             kwargs["k8s"] = K8sConfig(**config["k8s"])
+        if "wuying" in config:
+            kwargs["wuying"] = WuyingConfig(**config["wuying"])
         if "warmup" in config:
             kwargs["warmup"] = WarmupConfig(**config["warmup"])
         if "nacos" in config:

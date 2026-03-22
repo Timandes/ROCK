@@ -1,0 +1,28 @@
+# Wuying (阿里云云电脑) deployment configuration
+# Configuration loaded from cloud-ecd project
+wuying:
+  region_id: "cn-hangzhou"
+  endpoint: "ecd.cn-hangzhou.aliyuncs.com"
+  office_site_id: "cn-hangzhou+dir-5478102986"
+  policy_group_id: "pg-0bbay4wbhh3627ur7"
+  
+  # SSH credentials (can be overridden by environment variables)
+  # ROCK_WUYING_SSH_USERNAME and ROCK_WUYING_SSH_PASSWORD take precedence
+  ssh_username: "admin"
+  ssh_password: "sNGw-26DW-b3kP-g6Nx-BNW2"
+  
+  pools:
+    pool-ubuntu-2c4g:
+      image: "ubuntu:22.04"
+      bundle_id: "b-g5oalp0gbl03itetf"
+      cpus: 2
+      memory: "4g"
+      desktop_type: "eds.enterprise_office.2c4g"
+      ports:
+        proxy: 8000    # HTTP API port (rocklet/swerex-remote)
+        server: 8080   # WebSocket server port (same service)
+        ssh: 22        # SSH service port
+
+# Runtime configuration
+runtime:
+  operator_type: "wuying"

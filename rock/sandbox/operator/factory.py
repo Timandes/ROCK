@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rock.admin.core.ray_service import RayService
-from rock.config import K8sConfig, RuntimeConfig
+from rock.config import K8sConfig, RuntimeConfig, WuyingConfig
 from rock.logger import init_logger
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.sandbox.operator.k8s.operator import K8sOperator
@@ -28,6 +28,8 @@ class OperatorContext:
     # K8s operator dependencies
     k8s_config: K8sConfig | None = None
     nacos_provider: NacosConfigProvider | None = None
+    # Wuying operator dependencies
+    wuying_config: WuyingConfig | None = None
     # Future operator dependencies can be added here without breaking existing code
     extra_params: dict[str, Any] = field(default_factory=dict)
 
@@ -67,5 +69,12 @@ class OperatorFactory:
                 raise ValueError("K8sConfig is required for K8sOperator")
             logger.info("Creating K8sOperator")
             return K8sOperator(k8s_config=context.k8s_config)
+        elif operator_type == "wuying":
+            if context.wuying_config is None:
+                raise ValueError("WuyingConfig is required for WuyingOperator")
+            logger.info("Creating WuyingOperator")
+            from rock.sandbox.operator.wuying import WuyingOperator
+
+            return WuyingOperator(wuying_config=context.wuying_config)
         else:
-            raise ValueError(f"Unsupported operator type: {operator_type}. " f"Supported types: ray, kubernetes")
+            raise ValueError(f"Unsupported operator type: {operator_type}. " f"Supported types: ray, kubernetes, wuying")

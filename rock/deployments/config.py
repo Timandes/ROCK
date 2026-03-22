@@ -214,6 +214,40 @@ class RemoteDeploymentConfig(DeploymentConfig):
         return RemoteDeployment.from_config(self)
 
 
+class WuyingDeploymentConfig(DeploymentConfig):
+    """Configuration for Wuying (阿里云云电脑) deployment.
+
+    This deployment type connects to a cloud desktop instance via SSH
+    and communicates with the rocklet service running inside.
+    """
+
+    desktop_id: str
+    """云电脑实例 ID."""
+
+    host_ip: str
+    """云电脑 IP 地址."""
+
+    ssh_port: int = 22
+    """SSH 端口."""
+
+    ssh_username: str = "user"
+    """SSH 用户名."""
+
+    ssh_password: str = "password"
+    """SSH 密码."""
+
+    proxy_port: int = 8000
+    """Rocklet proxy 服务端口."""
+
+    type: Literal["wuying"] = "wuying"
+    """Deployment type discriminator for serialization/deserialization and CLI parsing. Should not be modified."""
+
+    def get_deployment(self) -> AbstractDeployment:
+        from rock.deployments.wuying import WuyingDeployment
+
+        return WuyingDeployment.from_config(self)
+
+
 def get_deployment(config: DeploymentConfig) -> AbstractDeployment:
     """Create a deployment instance from the given configuration.
 
