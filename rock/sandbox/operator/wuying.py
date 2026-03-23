@@ -5,6 +5,7 @@ from datetime import datetime
 
 from rock.config import WuyingConfig, WuyingPoolConfig
 from rock.deployments.config import DockerDeploymentConfig
+from rock.deployments.status import PhaseStatus, Status
 from rock.sandbox.operator.abstract import AbstractOperator
 from rock.actions.sandbox.sandbox_info import SandboxInfo
 from rock.actions.sandbox.response import State
@@ -174,6 +175,7 @@ class WuyingOperator(AbstractOperator):
             return SandboxInfo(
                 sandbox_id=sandbox_id,
                 state=State.PENDING,
+                phases=self._build_phases(State.PENDING),
             )
 
         # Query ECD API using desktop_id
@@ -195,6 +197,7 @@ class WuyingOperator(AbstractOperator):
                 sandbox_id=sandbox_id,
                 desktop_id=desktop_id,
                 state=State.PENDING,
+                phases=self._build_phases(State.PENDING),
             )
 
         desktop = response.body.desktops[0]
@@ -211,9 +214,16 @@ class WuyingOperator(AbstractOperator):
         # Get port_mapping from Redis cache (preserved from submit())
         port_mapping = await self._get_port_mapping(sandbox_id)
 
-        # If running and has IP, start rocklet in background (non-blocking)
+        # Check if rocklet is alive
+        is_alive = False
         if state == State.RUNNING and host_ip:
-            asyncio.create_task(self._ensure_rocklet_running(sandbox_id, desktop_id, host_ip))
+            is_alive = await self._check_rocklet_alive(sandbox_id, host_ip, port_mapping)
+            # Start rocklet in background if not alive (non-blocking)
+            if not is_alive:
+                asyncio.create_task(self._ensure_rocklet_running(sandbox_id, desktop_id, host_ip))
+
+        # Build phases based on state
+        phases = self._build_phases(state, is_alive)
 
         return SandboxInfo(
             sandbox_id=sandbox_id,
@@ -221,6 +231,7 @@ class WuyingOperator(AbstractOperator):
             host_ip=host_ip,
             host_name=desktop.desktop_name or sandbox_id,
             state=state,
+            phases=phases,
             image="",  # Not available from DescribeDesktops
             cpus=0.0,  # Not available from DescribeDesktops
             memory="",  # Not available from DescribeDesktops
@@ -642,6 +653,62 @@ class WuyingOperator(AbstractOperator):
         if desktop_status in running_states:
             return State.RUNNING
         return State.PENDING
+
+    def _build_phases(self, state: State, is_alive: bool = False) -> dict[str, PhaseStatus]:
+        """Build phases dict consistent with Ray/Docker operators.
+
+        Maps Wuying concepts to standard phases:
+        - image_pull: Desktop creation (云电脑创建)
+        - docker_run: Rocklet running status
+
+        Args:
+            state: Current sandbox state
+            is_alive: Whether rocklet is responding
+
+        Returns:
+            dict with 'image_pull' and 'docker_run' PhaseStatus
+        """
+        if state == State.RUNNING and is_alive:
+            return {
+                "image_pull": PhaseStatus(status=Status.SUCCESS, message="desktop created"),
+                "docker_run": PhaseStatus(status=Status.SUCCESS, message="rocklet running"),
+            }
+        elif state == State.RUNNING:
+            # Desktop running but rocklet not ready
+            return {
+                "image_pull": PhaseStatus(status=Status.SUCCESS, message="desktop created"),
+                "docker_run": PhaseStatus(status=Status.RUNNING, message="rocklet starting"),
+            }
+        else:
+            # Desktop not ready
+            return {
+                "image_pull": PhaseStatus(status=Status.WAITING, message="desktop creating"),
+                "docker_run": PhaseStatus(status=Status.WAITING, message="waiting"),
+            }
+
+    async def _check_rocklet_alive(self, sandbox_id: str, host_ip: str, port_mapping: dict | None) -> bool:
+        """Check if rocklet is responding on the cloud desktop.
+
+        Args:
+            sandbox_id: Sandbox identifier (UUID)
+            host_ip: Desktop IP address
+            port_mapping: Port mapping dict
+
+        Returns:
+            True if rocklet is alive, False otherwise
+        """
+        import httpx
+
+        rocklet_port = port_mapping.get(22555, 8000) if port_mapping else 8000
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"http://{host_ip}:{rocklet_port}/is_alive")
+                if resp.status_code == 200:
+                    return True
+        except Exception:
+            pass  # Rocklet not responding
+        return False
 
     def get_pool_config(self, pool_name: str) -> WuyingPoolConfig | None:
         """Get pool configuration by name.

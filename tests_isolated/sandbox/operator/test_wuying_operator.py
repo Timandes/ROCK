@@ -283,14 +283,16 @@ class TestWuyingOperatorGetStatus:
         mock_desktop.network_interface_ip = "192.168.1.100"
         mock_response.body.desktops = [mock_desktop]
 
-        with patch.object(operator, "_create_ecd_client") as mock_client_factory:
-            mock_client = MagicMock()
-            mock_client.describe_desktops_with_options.return_value = mock_response
-            mock_client_factory.return_value = mock_client
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
 
-            result = await operator.get_status("ecd-test-123")
+                with patch.object(operator, "_check_rocklet_alive", return_value=True):
+                    result = await operator.get_status("sandbox-123")
 
-        assert result["sandbox_id"] == "ecd-test-123"
+        assert result["sandbox_id"] == "sandbox-123"
         assert result["state"] == State.RUNNING
         assert result["host_ip"] == "192.168.1.100"
 
@@ -300,15 +302,86 @@ class TestWuyingOperatorGetStatus:
         mock_response = MagicMock()
         mock_response.body.desktops = []
 
-        with patch.object(operator, "_create_ecd_client") as mock_client_factory:
-            mock_client = MagicMock()
-            mock_client.describe_desktops_with_options.return_value = mock_response
-            mock_client_factory.return_value = mock_client
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
 
-            result = await operator.get_status("ecd-not-exist")
+                result = await operator.get_status("sandbox-123")
 
-        assert result["sandbox_id"] == "ecd-not-exist"
+        assert result["sandbox_id"] == "sandbox-123"
         assert result["state"] == State.PENDING
+
+    @pytest.mark.asyncio
+    async def test_get_status_returns_phases_dict(self, operator):
+        """Test get_status returns phases dict consistent with other operators."""
+        mock_response = MagicMock()
+        mock_desktop = MagicMock()
+        mock_desktop.desktop_status = "Running"
+        mock_desktop.desktop_name = "test-desktop"
+        mock_desktop.network_interface_ip = "192.168.1.100"
+        mock_response.body.desktops = [mock_desktop]
+
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
+
+                with patch.object(operator, "_check_rocklet_alive", return_value=True):
+                    result = await operator.get_status("sandbox-123")
+
+        # phases should be a dict with 'image_pull' and 'docker_run' keys
+        assert "phases" in result
+        assert isinstance(result["phases"], dict)
+        assert "image_pull" in result["phases"]
+        assert "docker_run" in result["phases"]
+
+    @pytest.mark.asyncio
+    async def test_get_status_phases_running_when_alive(self, operator):
+        """Test phases show success when desktop running and rocklet alive."""
+        mock_response = MagicMock()
+        mock_desktop = MagicMock()
+        mock_desktop.desktop_status = "Running"
+        mock_desktop.desktop_name = "test-desktop"
+        mock_desktop.network_interface_ip = "192.168.1.100"
+        mock_response.body.desktops = [mock_desktop]
+
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
+
+                with patch.object(operator, "_check_rocklet_alive", return_value=True):
+                    result = await operator.get_status("sandbox-123")
+
+        # Both phases should be success
+        assert result["phases"]["image_pull"].status.value == "success"
+        assert result["phases"]["docker_run"].status.value == "success"
+
+    @pytest.mark.asyncio
+    async def test_get_status_phases_pending_when_not_running(self, operator):
+        """Test phases show waiting when desktop is pending."""
+        mock_response = MagicMock()
+        mock_desktop = MagicMock()
+        mock_desktop.desktop_status = "Pending"
+        mock_desktop.desktop_name = "test-desktop"
+        mock_desktop.network_interface_ip = ""
+        mock_response.body.desktops = [mock_desktop]
+
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
+
+                result = await operator.get_status("sandbox-123")
+
+        # Both phases should be waiting
+        assert result["phases"]["image_pull"].status.value == "waiting"
+        assert result["phases"]["docker_run"].status.value == "waiting"
 
 
 class TestWuyingOperatorStop:
