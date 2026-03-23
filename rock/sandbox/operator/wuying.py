@@ -203,9 +203,6 @@ class WuyingOperator(AbstractOperator):
         desktop = response.body.desktops[0]
         desktop_status = desktop.desktop_status
 
-        # Map status
-        state = self._map_desktop_status(desktop_status)
-
         # Get IP address (attribute name is network_interface_ip)
         host_ip = ""
         if hasattr(desktop, 'network_interface_ip') and desktop.network_interface_ip:
@@ -214,16 +211,22 @@ class WuyingOperator(AbstractOperator):
         # Get port_mapping from Redis cache (preserved from submit())
         port_mapping = await self._get_port_mapping(sandbox_id)
 
-        # Check if rocklet is alive
+        # Check if rocklet is alive (K8s Operator style: state depends on is_alive)
+        # Only check if desktop is running and has IP
+        desktop_running = desktop_status == "Running"
         is_alive = False
-        if state == State.RUNNING and host_ip:
+        if desktop_running and host_ip:
             is_alive = await self._check_rocklet_alive(sandbox_id, host_ip, port_mapping)
             # Start rocklet in background if not alive (non-blocking)
             if not is_alive:
                 asyncio.create_task(self._ensure_rocklet_running(sandbox_id, desktop_id, host_ip))
 
-        # Build phases based on state
-        phases = self._build_phases(state, is_alive)
+        # State is determined by is_alive, not just desktop status (K8s Operator style)
+        # This ensures clients wait until rocklet is actually responding
+        state = State.RUNNING if is_alive else State.PENDING
+
+        # Build phases based on desktop status and rocklet status
+        phases = self._build_phases(State.RUNNING if desktop_running else State.PENDING, is_alive)
 
         return SandboxInfo(
             sandbox_id=sandbox_id,

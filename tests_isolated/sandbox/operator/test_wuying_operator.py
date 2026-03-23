@@ -383,6 +383,59 @@ class TestWuyingOperatorGetStatus:
         assert result["phases"]["image_pull"].status.value == "waiting"
         assert result["phases"]["docker_run"].status.value == "waiting"
 
+    @pytest.mark.asyncio
+    async def test_get_status_state_pending_when_rocklet_not_alive(self, operator):
+        """Test state is PENDING when desktop running but rocklet not alive.
+
+        This follows K8s Operator logic: state should reflect rocklet health,
+        not just the cloud desktop status. The sandbox is only RUNNING when
+        rocklet is actually responding.
+        """
+        mock_response = MagicMock()
+        mock_desktop = MagicMock()
+        mock_desktop.desktop_status = "Running"  # Cloud desktop is running
+        mock_desktop.desktop_name = "test-desktop"
+        mock_desktop.network_interface_ip = "192.168.1.100"
+        mock_response.body.desktops = [mock_desktop]
+
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
+
+                # Rocklet is NOT alive
+                with patch.object(operator, "_check_rocklet_alive", return_value=False):
+                    with patch.object(operator, "_ensure_rocklet_running"):
+                        result = await operator.get_status("sandbox-123")
+
+        # State should be PENDING because rocklet is not alive
+        # (K8s Operator style: is_alive determines state)
+        assert result["state"] == State.PENDING
+
+    @pytest.mark.asyncio
+    async def test_get_status_state_running_when_rocklet_alive(self, operator):
+        """Test state is RUNNING only when rocklet is actually alive."""
+        mock_response = MagicMock()
+        mock_desktop = MagicMock()
+        mock_desktop.desktop_status = "Running"
+        mock_desktop.desktop_name = "test-desktop"
+        mock_desktop.network_interface_ip = "192.168.1.100"
+        mock_response.body.desktops = [mock_desktop]
+
+        with patch.object(operator, "_get_desktop_id", return_value="ecd-test-123"):
+            with patch.object(operator, "_create_ecd_client") as mock_client_factory:
+                mock_client = MagicMock()
+                mock_client.describe_desktops_with_options.return_value = mock_response
+                mock_client_factory.return_value = mock_client
+
+                # Rocklet IS alive
+                with patch.object(operator, "_check_rocklet_alive", return_value=True):
+                    result = await operator.get_status("sandbox-123")
+
+        # State should be RUNNING because rocklet is alive
+        assert result["state"] == State.RUNNING
+
 
 class TestWuyingOperatorStop:
     """Tests for WuyingOperator.stop method."""
