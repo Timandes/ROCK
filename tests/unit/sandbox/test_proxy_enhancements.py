@@ -2,17 +2,17 @@
 1. WebSocket proxy supports user-specified port
 2. HTTP proxy supports all HTTP methods
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from starlette.datastructures import Headers
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 
 from rock.admin.entrypoints.sandbox_proxy_api import sandbox_proxy_router, set_sandbox_proxy_service
 from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -236,7 +236,6 @@ class TestHttpProxyServiceMethod:
 
     async def test_http_proxy_uses_provided_method(self):
         """http_proxy should send request with the given method."""
-        from rock.deployments.constants import Port
         from rock.deployments.status import ServiceStatus
         from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
@@ -485,7 +484,6 @@ class TestHttpProxyLocationRewrite:
 
     async def test_relative_location_is_rewritten(self):
         """301 with relative Location '/?foo=bar' should be rewritten to proxy prefix + '/?foo=bar'."""
-        from rock.deployments.status import ServiceStatus
         from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
         service, mock_status, FakeClient = self._make_service(301, "/?resize=scale&reconnect=true")
@@ -509,7 +507,6 @@ class TestHttpProxyLocationRewrite:
 
     async def test_absolute_upstream_location_is_stripped_to_path(self):
         """301 with absolute upstream Location 'http://10.0.0.1:8006/path' should be rewritten to proxy prefix + '/path'."""
-        from rock.deployments.status import ServiceStatus
         from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
         service, mock_status, FakeClient = self._make_service(301, "http://10.0.0.1:8006/some/path")
@@ -579,7 +576,6 @@ class TestHttpProxyLocationRewrite:
 
     async def test_proxy_prefix_none_location_unchanged(self):
         """When proxy_prefix is None (query-param mode), Location header is not rewritten."""
-        from rock.deployments.status import ServiceStatus
         from rock.sandbox.service.sandbox_proxy_service import SandboxProxyService
 
         service, mock_status, FakeClient = self._make_service(301, "/?foo=bar")
@@ -705,6 +701,7 @@ class TestHttpProxyQueryStringForwarding:
             MockSS.from_dict.return_value = mock_status
             with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
                 from starlette.datastructures import Headers
+
                 await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -717,8 +714,10 @@ class TestHttpProxyQueryStringForwarding:
                 )
 
         assert "resize=scale" in built_url["url"]
-        assert built_url["url"].endswith("?resize=scale&reconnect=true&autoconnect=true") or \
-               "?resize=scale&reconnect=true&autoconnect=true" in built_url["url"]
+        assert (
+            built_url["url"].endswith("?resize=scale&reconnect=true&autoconnect=true")
+            or "?resize=scale&reconnect=true&autoconnect=true" in built_url["url"]
+        )
 
     async def test_no_query_string_no_question_mark(self):
         """When query_string is empty, target URL should not have a trailing '?'."""
@@ -756,6 +755,7 @@ class TestHttpProxyQueryStringForwarding:
             MockSS.from_dict.return_value = mock_status
             with patch("rock.sandbox.service.sandbox_proxy_service.httpx.AsyncClient", return_value=FakeClient()):
                 from starlette.datastructures import Headers
+
                 await SandboxProxyService.http_proxy(
                     service,
                     sandbox_id="sb1",
@@ -770,112 +770,43 @@ class TestHttpProxyQueryStringForwarding:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Path-Based Port Routing — trailing slash 不触发 FastAPI 301
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestPathBasedPortTrailingSlash:
-    """Requests with trailing slash /proxy/port/{port}/ must NOT receive a 301 redirect.
-
-    FastAPI's redirect_slashes=True (default) causes /proxy/port/8006/?params
-    to be redirected to /proxy/port/8006?params, creating an infinite loop
-    when noVNC returns the page on the slash URL. The trailing-slash route must
-    be explicitly registered to suppress this redirect.
-    """
-
-    async def test_trailing_slash_does_not_redirect(self, app):
-        """/proxy/port/8006/ should return 200, not 301."""
-        a, svc = app
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            resp = await client.get(
-                "/sandboxes/sb1/proxy/port/8006/",
-                follow_redirects=False,
-            )
-
-        assert resp.status_code != 301, "trailing slash caused a redirect loop"
-        svc.http_proxy.assert_called_once()
-
-    async def test_trailing_slash_with_query_params_does_not_redirect(self, app):
-        """/proxy/port/8006/?resize=scale&reconnect=true should return 200, not 301."""
-        a, svc = app
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            resp = await client.get(
-                "/sandboxes/sb1/proxy/port/8006/?resize=scale&reconnect=true&autoconnect=true",
-                follow_redirects=False,
-            )
-
-        assert resp.status_code != 301, "trailing slash + query params caused a redirect loop"
-        svc.http_proxy.assert_called_once()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Path-Based Port Routing — HTTP
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestPathBasedPortHttpRouting:
-    """HTTP proxy: port in path /proxy/port/{port}/{path} should route correctly."""
+class TestPathBasedPortHttpRoutingDeprecated:
+    """HTTP proxy: port in path /proxy/port/{port}/{path} is now handled by generic route.
 
-    async def test_port_in_path_is_passed_to_service(self, app):
-        """GET /proxy/port/8006/index.html should call http_proxy with port=8006."""
+    When accessing /proxy/port/8006/index.html, it will be treated as:
+    - path = 'port/8006/index.html'
+    - port = None (from query param)
+    """
+
+    async def test_port_in_path_treated_as_regular_path(self, app):
+        """GET /proxy/port/8006/index.html should forward path='port/8006/index.html' with port=None."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
             await client.get("/sandboxes/sb1/proxy/port/8006/index.html")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
-        port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
-        assert port == 8006
-
-    async def test_path_after_port_is_forwarded(self, app):
-        """GET /proxy/port/8006/core/rfb.js should forward path=core/rfb.js."""
-        a, svc = app
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/my-sb/proxy/port/8006/core/rfb.js")
-
-        call = svc.http_proxy.call_args
         path = call.args[1] if len(call.args) > 1 else call.kwargs.get("target_path")
-        assert path == "core/rfb.js"
+        port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
+        assert path == "port/8006/index.html"
+        assert port is None
 
-    async def test_sandbox_id_is_forwarded_with_path_port(self, app):
-        """sandbox_id should be correctly extracted from path-based port URL."""
+    async def test_query_param_port_takes_precedence(self, app):
+        """GET /proxy/port/8006/api?rock_target_port=9000 should use port=9000."""
         a, svc = app
         async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/my-sandbox/proxy/port/8006/")
-
-        call = svc.http_proxy.call_args
-        sandbox_id = call.args[0] if call.args else call.kwargs.get("sandbox_id")
-        assert sandbox_id == "my-sandbox"
-
-    async def test_root_path_when_no_subpath(self, app):
-        """GET /proxy/port/8006 (no trailing path) should forward empty path."""
-        a, svc = app
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.get("/sandboxes/sb1/proxy/port/8006")
+            await client.get("/sandboxes/sb1/proxy/port/8006/api?rock_target_port=9000")
 
         svc.http_proxy.assert_called_once()
         call = svc.http_proxy.call_args
+        path = call.args[1] if len(call.args) > 1 else call.kwargs.get("target_path")
         port = call.kwargs.get("port") or (call.args[5] if len(call.args) > 5 else None)
-        assert port == 8006
-
-    async def test_all_http_methods_supported_with_path_port(self, app):
-        """POST /proxy/port/8006/api should forward method=POST."""
-        a, svc = app
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            await client.post("/sandboxes/sb1/proxy/port/8006/api", json={"x": 1})
-
-        call = svc.http_proxy.call_args
-        method = call.kwargs.get("method") or call.args[4]
-        assert method == "POST"
-
-    async def test_invalid_port_in_path_returns_400(self, app):
-        """GET /proxy/port/80/index.html (port < 1024) should return 400."""
-        a, svc = app
-        async with AsyncClient(transport=ASGITransport(app=a), base_url="http://test") as client:
-            resp = await client.get("/sandboxes/sb1/proxy/port/80/index.html")
-
-        assert resp.status_code == 400
-        svc.http_proxy.assert_not_called()
+        assert path == "port/8006/api"
+        assert port == 9000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -883,44 +814,47 @@ class TestPathBasedPortHttpRouting:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class TestPathBasedPortWsRouting:
-    """WS proxy: port in path /proxy/port/{port}/ws should route correctly."""
+class TestPathBasedPortWsRoutingDeprecated:
+    """WS proxy: port in path /proxy/port/{port}/ws is now handled by generic route.
 
-    async def test_ws_port_in_path_is_passed_to_service(self, app):
-        """WS /proxy/port/8006/ws should call websocket_proxy with port=8006."""
-        a, svc = app
-        client = TestClientWS(a)
-        with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws"):
-            pass
+    When accessing /proxy/port/8006/ws, it will be treated as:
+    - path = 'port/8006/ws'
+    - port = None (from query param)
+    """
 
-        svc.websocket_proxy.assert_called_once()
-        call = svc.websocket_proxy.call_args
-        port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
-        assert port == 8006
-
-    async def test_ws_path_after_port_is_forwarded(self, app):
-        """WS /proxy/port/8006/ws/websockify should forward path=websockify."""
-        a, svc = app
-        client = TestClientWS(a)
-        with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws/websockify"):
-            pass
-
-        call = svc.websocket_proxy.call_args
-        # target_path is 2nd positional arg or keyword
-        target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
-        assert target_path == "websockify"
-
-    async def test_ws_invalid_port_in_path_closes_with_1008(self, app):
-        """WS /proxy/port/80/ws (port < 1024) should close connection with code 1008."""
+    async def test_ws_port_in_path_treated_as_regular_path(self, app):
+        """WS /proxy/port/8006/ws should forward path='port/8006/ws' with port=None."""
         a, svc = app
         client = TestClientWS(a)
         try:
-            with client.websocket_connect("/sandboxes/sb1/proxy/port/80/ws"):
+            with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws"):
                 pass
         except Exception:
             pass
 
-        svc.websocket_proxy.assert_not_called()
+        svc.websocket_proxy.assert_called_once()
+        call = svc.websocket_proxy.call_args
+        target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
+        port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
+        assert target_path == "port/8006/ws"
+        assert port is None
+
+    async def test_ws_query_param_port_takes_precedence(self, app):
+        """WS /proxy/port/8006/ws?rock_target_port=9000 should use port=9000."""
+        a, svc = app
+        client = TestClientWS(a)
+        try:
+            with client.websocket_connect("/sandboxes/sb1/proxy/port/8006/ws?rock_target_port=9000"):
+                pass
+        except Exception:
+            pass
+
+        svc.websocket_proxy.assert_called_once()
+        call = svc.websocket_proxy.call_args
+        target_path = call.args[2] if len(call.args) > 2 else call.kwargs.get("target_path")
+        port = call.kwargs.get("port") or (call.args[3] if len(call.args) > 3 else None)
+        assert target_path == "port/8006/ws"
+        assert port == 9000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
