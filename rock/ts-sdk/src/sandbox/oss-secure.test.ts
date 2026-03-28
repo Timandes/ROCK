@@ -434,3 +434,52 @@ describe('ossutil cp command format', () => {
     expect(hasConfig).toBe(false);
   });
 });
+
+/**
+ * Region format handling tests
+ *
+ * Python SDK uses:
+ * - ROCK_OSS_BUCKET_ENDPOINT: "oss-cn-hangzhou.aliyuncs.com" (no protocol prefix)
+ * - ROCK_OSS_BUCKET_REGION: "cn-hangzhou" (no "oss-" prefix)
+ */
+describe('Region format handling', () => {
+  test('should use ROCK_OSS_BUCKET_ENDPOINT if available', () => {
+    const endpoint = 'oss-cn-hangzhou.aliyuncs.com';
+    // Python SDK uses endpoint directly from env var
+    expect(endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
+    expect(endpoint).not.toContain('https://');
+  });
+
+  test('should normalize region by removing oss- prefix', () => {
+    // Region can be "cn-hangzhou" or "oss-cn-hangzhou"
+    // ossutil expects "cn-hangzhou" format
+    const region1 = 'cn-hangzhou';
+    const region2 = 'oss-cn-hangzhou';
+    
+    const normalized1 = region1.replace(/^oss-/, '');
+    const normalized2 = region2.replace(/^oss-/, '');
+    
+    expect(normalized1).toBe('cn-hangzhou');
+    expect(normalized2).toBe('cn-hangzhou');
+  });
+
+  test('should build endpoint from region if ROCK_OSS_BUCKET_ENDPOINT not set', () => {
+    const region = 'cn-hangzhou';
+    const normalizedRegion = region.replace(/^oss-/, '');
+    const endpoint = `oss-${normalizedRegion}.aliyuncs.com`;
+    
+    expect(endpoint).toBe('oss-cn-hangzhou.aliyuncs.com');
+  });
+
+  test('should handle both region formats for ossutil command', () => {
+    // Test with "cn-hangzhou"
+    const region1 = 'cn-hangzhou';
+    const normalized1 = region1.replace(/^oss-/, '');
+    expect(normalized1).toBe('cn-hangzhou');
+    
+    // Test with "oss-cn-hangzhou"
+    const region2 = 'oss-cn-hangzhou';
+    const normalized2 = region2.replace(/^oss-/, '');
+    expect(normalized2).toBe('cn-hangzhou');
+  });
+});

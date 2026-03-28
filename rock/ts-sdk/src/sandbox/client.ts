@@ -769,8 +769,10 @@ export class Sandbox extends AbstractSandbox {
       // Get STS credentials for ossutil
       const credentials = await this.getOssStsCredentials();
       const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
-      const region = envVars.ROCK_OSS_BUCKET_REGION ?? '';
-      const endpoint = `https://oss-${region}.aliyuncs.com`;
+      const region = (envVars.ROCK_OSS_BUCKET_REGION ?? '').replace(/^oss-/, ''); // Normalize: remove "oss-" prefix if present
+      // Use ROCK_OSS_BUCKET_ENDPOINT if available, otherwise build from region
+      // Endpoint format: "oss-cn-hangzhou.aliyuncs.com" (no protocol prefix)
+      const endpoint = envVars.ROCK_OSS_BUCKET_ENDPOINT ?? `oss-${region}.aliyuncs.com`;
 
       // Upload from sandbox to OSS via ossutil v2
       // ossutil v2 uses command-line parameters for credentials (no separate config needed)
