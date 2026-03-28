@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-03-28
+
+### Fixed
+
+- **OSS signatureUrl Parameter Type** - Fixed `signatureUrl` method call in `uploadViaOss()`
+  - Changed `signatureUrl(objectName, 600)` to `signatureUrl(objectName, { expires: 600 })`
+  - Previously, passing a raw number caused `TypeError: Cannot read properties of undefined (reading 'toUpperCase')`
+  - The `ali-oss` API requires an options object with `expires` property
+
 ## [1.3.1] - 2026-03-28
 
 ### Fixed
