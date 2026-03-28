@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-28
+
+### Added
+
+- **OSS File Download** - New `downloadFile()` method to download files from sandbox via OSS
+  - Downloads remote files from sandbox to local machine using OSS as intermediate storage
+  - Automatically installs ossutil in sandbox for OSS operations
+  - Generates unique object names to avoid conflicts
+
+- **Enhanced File Upload with Upload Mode** - `uploadByPath()` now accepts `uploadMode` parameter
+  - `auto`: Automatically choose upload method based on file size (>1MB) and OSS availability
+  - `direct`: Force direct HTTP upload
+  - `oss`: Force OSS upload for large files
+
+- **OSS STS Credentials Management**
+  - `getOssStsCredentials()`: Fetch STS token from sandbox `/get_token` API
+  - `isTokenExpired()`: Check token expiration with 5-minute buffer
+  - Automatic token refresh support via `refreshSTSToken`
+
+- **New Types**
+  - `DownloadFileResponse`: Response type for download operations
+  - `OssCredentials`: STS credentials structure
+  - `UploadMode`: Enum for upload mode selection (`'auto' | 'direct' | 'oss'`)
+
+### New Constants
+
+- `ENSURE_OSSUTIL_SCRIPT`: Script to install ossutil in sandbox
+
 ## [1.2.7] - 2026-03-11
 
 ### Fixed

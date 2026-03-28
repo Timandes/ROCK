@@ -10,6 +10,8 @@ import {
   IsAliveResponseSchema,
   CommandResponseSchema,
   ObservationSchema,
+  DownloadFileResponseSchema,
+  OssCredentialsSchema,
 } from './responses.js';
 
 describe('SandboxStatusResponse', () => {
@@ -188,5 +190,77 @@ describe('Observation', () => {
     expect(result.exitCode).toBeUndefined();
     expect(result.failureReason).toBe('');
     expect(result.expectString).toBe('');
+  });
+});
+
+describe('DownloadFileResponse', () => {
+  test('should parse successful response', () => {
+    const result = DownloadFileResponseSchema.parse({
+      success: true,
+      message: 'Successfully downloaded /remote/file.txt to /local/file.txt',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Successfully downloaded /remote/file.txt to /local/file.txt');
+  });
+
+  test('should parse failure response', () => {
+    const result = DownloadFileResponseSchema.parse({
+      success: false,
+      message: 'OSS download is not enabled',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toBe('OSS download is not enabled');
+  });
+
+  test('should default success to false', () => {
+    const result = DownloadFileResponseSchema.parse({
+      message: 'Error occurred',
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  test('should default message to empty string', () => {
+    const result = DownloadFileResponseSchema.parse({});
+
+    expect(result.message).toBe('');
+  });
+});
+
+describe('OssCredentials', () => {
+  test('should parse valid OSS credentials', () => {
+    const result = OssCredentialsSchema.parse({
+      accessKeyId: 'STS.NUxxxxxxxxxxxxxx',
+      accessKeySecret: 'xxxxxxxxxxxxxxxx',
+      securityToken: 'CAISxxxxxxxxxxxxxxxx',
+      expiration: '2025-03-28T12:00:00Z',
+    });
+
+    expect(result.accessKeyId).toBe('STS.NUxxxxxxxxxxxxxx');
+    expect(result.accessKeySecret).toBe('xxxxxxxxxxxxxxxx');
+    expect(result.securityToken).toBe('CAISxxxxxxxxxxxxxxxx');
+    expect(result.expiration).toBe('2025-03-28T12:00:00Z');
+  });
+
+  test('should require all fields', () => {
+    expect(() => {
+      OssCredentialsSchema.parse({
+        accessKeyId: 'test',
+        // missing other fields
+      });
+    }).toThrow();
+  });
+
+  test('should reject invalid types', () => {
+    expect(() => {
+      OssCredentialsSchema.parse({
+        accessKeyId: 123, // should be string
+        accessKeySecret: 'secret',
+        securityToken: 'token',
+        expiration: '2025-03-28T12:00:00Z',
+      });
+    }).toThrow();
   });
 });
