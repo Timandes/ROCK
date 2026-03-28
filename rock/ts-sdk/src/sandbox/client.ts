@@ -500,8 +500,19 @@ export class Sandbox extends AbstractSandbox {
 
     const tmpFile = outputFile ?? `/tmp/tmp_${timestamp}.out`;
 
+    // Wrap multi-line scripts with bash -c to avoid nohup issues
+    // Single-line commands can be passed directly to nohup
+    // Multi-line scripts need to be wrapped with bash -c $'script'
+    let effectiveCmd: string;
+    if (cmd.includes('\n')) {
+      // Use $'...' syntax to properly handle newlines and special characters
+      effectiveCmd = `bash -c $'${cmd.replace(/'/g, "'\\''")}'`;
+    } else {
+      effectiveCmd = cmd;
+    }
+
     // Start nohup process
-    const nohupCommand = `nohup ${cmd} < /dev/null > ${tmpFile} 2>&1 & echo __ROCK_PID_START__$!__ROCK_PID_END__;disown`;
+    const nohupCommand = `nohup ${effectiveCmd} < /dev/null > ${tmpFile} 2>&1 & echo __ROCK_PID_START__$!__ROCK_PID_END__;disown`;
     const response = await this.runInSession({
       command: nohupCommand,
       session: tmpSession,

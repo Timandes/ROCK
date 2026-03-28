@@ -761,6 +761,89 @@ describe('arun() - session creation behavior (matching Python SDK)', () => {
       
       expect(calledEndpoints.some((url: string) => url.includes('create_session'))).toBe(true);
     });
+
+    test('should wrap multi-line scripts with bash -c in nohup mode', async () => {
+      // Mock nohup command response (for PID extraction)
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '__ROCK_PID_START__12345__ROCK_PID_END__',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock kill -0 check (process completed)
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: '',
+            exit_code: 1,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Mock output file read
+      mockPost.mockResolvedValueOnce({
+        data: {
+          status: 'Success',
+          result: {
+            output: 'script executed',
+            exit_code: 0,
+            failure_reason: '',
+            expect_string: '',
+          },
+        },
+        headers: {},
+      });
+
+      // Multi-line script
+      const multiLineScript = `#!/bin/bash
+set -e
+echo "line 1"
+echo "line 2"
+`;
+
+      await sandbox.arun(multiLineScript, { 
+        mode: 'nohup', 
+        session: 'test-session',
+        waitTimeout: 1,
+        waitInterval: 1,
+      });
+
+      // Verify the command sent to run_in_session wraps multi-line script with bash -c
+      // mockPost.calls[x][0] = URL, mockPost.calls[x][1] = data object
+      const postCalls = mockPost.mock.calls;
+      
+      // Find the call with nohup command
+      let commandArg: string | undefined;
+      for (const call of postCalls) {
+        // call[1] is the data object passed to post
+        const data = call[1] as unknown;
+        if (data && typeof data === 'object' && 'command' in data) {
+          const cmd = (data as { command: string }).command;
+          if (cmd.includes('nohup')) {
+            commandArg = cmd;
+            break;
+          }
+        }
+      }
+      
+      expect(commandArg).toBeDefined();
+      
+      // Should wrap with bash -c for multi-line scripts
+      expect(commandArg).toMatch(/nohup bash -c/);
+      // Should NOT have raw multi-line content directly after nohup
+      expect(commandArg).not.toMatch(/nohup #!\/bin\/bash/);
+    });
   });
 });
 
