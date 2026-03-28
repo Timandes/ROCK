@@ -15,6 +15,7 @@ import {
 } from './config.js';
 import { Deploy } from './deploy.js';
 import { LinuxFileSystem } from './file_system.js';
+import { ENSURE_OSSUTIL_SCRIPT } from './constants.js';
 import { Network } from './network.js';
 import { Process } from './process.js';
 import { LinuxRemoteUser } from './remote_user.js';
@@ -32,6 +33,8 @@ import {
   ReadFileResponseSchema,
   UploadResponseSchema,
   CloseSessionResponseSchema,
+  DownloadFileResponseSchema,
+  OssCredentialsSchema,
 } from '../types/responses.js';
 import type {
   Observation,
@@ -43,6 +46,8 @@ import type {
   ReadFileResponse,
   UploadResponse,
   CloseSessionResponse,
+  DownloadFileResponse,
+  OssCredentials,
 } from '../types/responses.js';
 import type {
   Command,
@@ -51,7 +56,9 @@ import type {
   ReadFileRequest,
   UploadRequest,
   CloseSessionRequest,
+  UploadMode,
 } from '../types/requests.js';
+import { envVars } from '../env_vars.js';
 
 const logger = initLogger('rock.sandbox');
 
@@ -93,6 +100,11 @@ export class Sandbox extends AbstractSandbox {
   private hostName: string | null = null;
   private hostIp: string | null = null;
   private cluster: string;
+
+  // OSS-related properties
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private ossBucket: any = null;
+  private ossTokenExpireTime: string = '';
 
   // Sub-components
   private deploy: Deploy;
@@ -619,7 +631,7 @@ export class Sandbox extends AbstractSandbox {
     return this.uploadByPath(request.sourcePath, request.targetPath);
   }
 
-  async uploadByPath(sourcePath: string, targetPath: string): Promise<UploadResponse> {
+  async uploadByPath(sourcePath: string, targetPath: string, uploadMode: UploadMode = 'auto'): Promise<UploadResponse> {
     const url = `${this.url}/upload`;
     const headers = this.buildHeaders();
 
@@ -631,6 +643,16 @@ export class Sandbox extends AbstractSandbox {
         await fs.access(sourcePath);
       } catch {
         return { success: false, message: `File not found: ${sourcePath}` };
+      }
+
+      // Check if we should use OSS upload
+      const stats = await fs.stat(sourcePath);
+      const fileSize = stats.size;
+      const ossEnabled = envVars.ROCK_OSS_ENABLE;
+      const ossThreshold = 1024 * 1024; // 1MB
+
+      if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {
+        return this.uploadViaOss(sourcePath, targetPath);
       }
 
       // Use async readFile instead of sync readFileSync
@@ -652,6 +674,183 @@ export class Sandbox extends AbstractSandbox {
     } catch (e) {
       return { success: false, message: `Upload failed: ${e}` };
     }
+  }
+
+  /**
+   * Get OSS STS credentials from sandbox
+   */
+  async getOssStsCredentials(): Promise<OssCredentials> {
+    const url = `${this.url}/get_token`;
+    const headers = this.buildHeaders();
+
+    const response = await HttpUtils.get<OssCredentials>(url, headers);
+
+    if (response.status !== 'Success') {
+      throw new Error(`Failed to get OSS STS token: ${JSON.stringify(response)}`);
+    }
+
+    const credentials = OssCredentialsSchema.parse(response.result);
+    this.ossTokenExpireTime = credentials.expiration;
+
+    return credentials;
+  }
+
+  /**
+   * Check if OSS token is expired (with 5-minute buffer)
+   */
+  isTokenExpired(): boolean {
+    if (!this.ossTokenExpireTime) {
+      return true;
+    }
+
+    try {
+      const expireTime = new Date(this.ossTokenExpireTime);
+      const currentTime = new Date();
+      const bufferMs = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+      return currentTime.getTime() >= (expireTime.getTime() - bufferMs);
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Download file from sandbox via OSS
+   */
+  async downloadFile(remotePath: string, localPath: string): Promise<DownloadFileResponse> {
+    // Check OSS is enabled
+    if (!envVars.ROCK_OSS_ENABLE) {
+      return {
+        success: false,
+        message: 'OSS download is not enabled. Please set ROCK_OSS_ENABLE=true',
+      };
+    }
+
+    try {
+      // Validate remote path
+      if (!remotePath || remotePath.trim() === '') {
+        return { success: false, message: 'Remote path is required' };
+      }
+
+      // Check if remote file exists
+      const checkResult = await this.execute({ command: ['test', '-f', remotePath], timeout: 60 });
+      if (checkResult.exitCode !== 0) {
+        return { success: false, message: `Remote file does not exist: ${remotePath}` };
+      }
+
+      // Setup OSS bucket if needed
+      if (this.ossBucket === null || this.isTokenExpired()) {
+        await this.setupOss();
+      }
+
+      if (!this.ossBucket) {
+        return { success: false, message: 'Failed to setup OSS bucket' };
+      }
+
+      // Install ossutil in sandbox
+      await this.arun(ENSURE_OSSUTIL_SCRIPT, { mode: 'nohup', waitTimeout: 300 });
+
+      // Generate unique object name
+      const timestamp = Date.now();
+      const fileName = remotePath.split('/').pop() ?? 'file';
+      const objectName = `download-${timestamp}-${fileName}`;
+
+      // Get STS credentials for ossutil config
+      const credentials = await this.getOssStsCredentials();
+      const bucketName = envVars.ROCK_OSS_BUCKET_NAME ?? '';
+      const region = envVars.ROCK_OSS_BUCKET_REGION ?? '';
+      const endpoint = `https://oss-${region}.aliyuncs.com`;
+
+      // Upload from sandbox to OSS via ossutil
+      const ossutilConfigCmd = `ossutil config -e ${endpoint} -i ${credentials.accessKeyId} -k ${credentials.accessKeySecret} -t ${credentials.securityToken} -b ${bucketName}`;
+      await this.arun(ossutilConfigCmd, { mode: 'nohup', waitTimeout: 60 });
+
+      const uploadToOssCmd = `ossutil cp ${remotePath} oss://${bucketName}/${objectName}`;
+      const uploadResult = await this.arun(uploadToOssCmd, { mode: 'nohup', waitTimeout: 600 });
+      if (uploadResult.exitCode !== 0) {
+        return { success: false, message: `Sandbox to OSS upload failed: ${uploadResult.output}` };
+      }
+
+      // Download from OSS to local via ali-oss
+      const result = await this.ossBucket.get(objectName, localPath);
+
+      // Cleanup OSS object
+      try {
+        await this.ossBucket.delete(objectName);
+      } catch {
+        // Ignore cleanup errors
+      }
+
+      return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
+    } catch (e) {
+      return { success: false, message: `Download failed: ${e}` };
+    }
+  }
+
+  /**
+   * Upload file via OSS (internal method)
+   */
+  private async uploadViaOss(sourcePath: string, targetPath: string): Promise<UploadResponse> {
+    try {
+      // Setup OSS bucket if needed
+      if (this.ossBucket === null || this.isTokenExpired()) {
+        await this.setupOss();
+      }
+
+      if (!this.ossBucket) {
+        return { success: false, message: 'Failed to setup OSS bucket' };
+      }
+
+      const timestamp = Date.now();
+      const fileName = sourcePath.split('/').pop() ?? 'file';
+      const objectName = `${timestamp}-${fileName}`;
+
+      // Upload to OSS
+      await this.ossBucket.put(objectName, sourcePath);
+
+      // Generate signed URL for sandbox to download
+      const signedUrl = this.ossBucket.signatureUrl(objectName, 600);
+
+      // Download in sandbox using wget
+      const downloadCmd = `wget -c -O '${targetPath}' '${signedUrl}'`;
+      await this.arun(downloadCmd, { mode: 'nohup', waitTimeout: 600 });
+
+      // Verify file exists in sandbox
+      const checkResult = await this.execute({ command: ['test', '-f', targetPath], timeout: 60 });
+      if (checkResult.exitCode !== 0) {
+        return { success: false, message: 'Sandbox download phase failed' };
+      }
+
+      return { success: true, message: `Successfully uploaded file ${fileName} to ${targetPath} via OSS` };
+    } catch (e) {
+      return { success: false, message: `OSS upload failed: ${e}` };
+    }
+  }
+
+  /**
+   * Setup OSS bucket with STS credentials
+   */
+  private async setupOss(): Promise<void> {
+    const credentials = await this.getOssStsCredentials();
+
+    const OSS = (await import('ali-oss')).default;
+
+    this.ossBucket = new OSS({
+      region: envVars.ROCK_OSS_BUCKET_REGION ?? '',
+      accessKeyId: credentials.accessKeyId,
+      accessKeySecret: credentials.accessKeySecret,
+      stsToken: credentials.securityToken,
+      bucket: envVars.ROCK_OSS_BUCKET_NAME ?? '',
+      refreshSTSToken: async () => {
+        const newCreds = await this.getOssStsCredentials();
+        return {
+          accessKeyId: newCreds.accessKeyId,
+          accessKeySecret: newCreds.accessKeySecret,
+          stsToken: newCreds.securityToken,
+        };
+      },
+      refreshSTSTokenInterval: 300000, // 5 minutes
+    });
   }
 
   // Close

@@ -173,3 +173,26 @@ export const OssSetupResponseSchema = z.object({
 });
 
 export type OssSetupResponse = z.infer<typeof OssSetupResponseSchema>;
+
+/**
+ * Download file response
+ */
+export const DownloadFileResponseSchema = z.object({
+  success: z.boolean().default(false),
+  message: z.string().default(''),
+});
+
+export type DownloadFileResponse = z.infer<typeof DownloadFileResponseSchema>;
+
+/**
+ * OSS STS credentials from sandbox /get_token API
+ * API returns snake_case, which gets converted to camelCase by HttpUtils
+ */
+export const OssCredentialsSchema = z.object({
+  accessKeyId: z.string(),
+  accessKeySecret: z.string(),
+  securityToken: z.string(),
+  expiration: z.string(),
+});
+
+export type OssCredentials = z.infer<typeof OssCredentialsSchema>;
