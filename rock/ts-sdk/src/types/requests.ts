@@ -63,11 +63,23 @@ export const ReadFileRequestSchema = z.object({
 export type ReadFileRequest = z.infer<typeof ReadFileRequestSchema>;
 
 /**
+ * Upload mode enum
+ * - auto: Automatically choose upload method based on file size and OSS availability
+ * - direct: Force direct HTTP upload
+ * - oss: Force OSS upload
+ */
+export const UploadModeSchema = z.enum(['auto', 'direct', 'oss']);
+
+export type UploadMode = z.infer<typeof UploadModeSchema>;
+
+/**
  * Upload file request
+ * Note: uploadMode defaults to 'auto' in the implementation, not in the schema
  */
 export const UploadRequestSchema = z.object({
   sourcePath: z.string(),
   targetPath: z.string(),
+  uploadMode: UploadModeSchema.optional(),
 });
 
 export type UploadRequest = z.infer<typeof UploadRequestSchema>;

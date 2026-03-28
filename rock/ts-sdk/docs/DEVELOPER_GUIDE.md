@@ -108,6 +108,35 @@ interface Observation {
 }
 ```
 
+#### 文件上传/下载
+
+```typescript
+// 上传文件 - 自动选择上传方式
+// 大于 1MB 且 OSS 已启用时自动使用 OSS 上传
+await sandbox.uploadByPath('./local-file.txt', '/remote/file.txt');
+
+// 上传文件 - 指定上传模式
+await sandbox.uploadByPath('./large-file.zip', '/remote/file.zip', 'auto');   // 自动选择
+await sandbox.uploadByPath('./file.txt', '/remote/file.txt', 'direct');       // 强制 HTTP 上传
+await sandbox.uploadByPath('./large.zip', '/remote/large.zip', 'oss');        // 强制 OSS 上传
+
+// 下载文件 - 从沙箱下载到本地 (需要配置 OSS)
+const result = await sandbox.downloadFile('/remote/file.txt', './local-file.txt');
+if (result.success) {
+  console.log('下载成功');
+}
+
+// 获取 OSS STS 凭证
+const credentials = await sandbox.getOssStsCredentials();
+console.log(credentials.accessKeyId);
+console.log(credentials.expiration);
+
+// 检查 Token 是否过期 (5分钟缓冲)
+if (sandbox.isTokenExpired()) {
+  // Token 已过期或即将过期
+}
+```
+
 #### 会话管理
 
 ```typescript
@@ -267,7 +296,7 @@ ROCK_ENVHUB_BASE_URL=http://your-envhub-server:8081
 # 沙箱配置
 ROCK_SANDBOX_STARTUP_TIMEOUT_SECONDS=300
 
-# OSS 配置 (大文件上传)
+# OSS 配置 (大文件上传/下载)
 ROCK_OSS_ENABLE=true
 ROCK_OSS_BUCKET_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
 ROCK_OSS_BUCKET_NAME=your-bucket
@@ -568,9 +597,23 @@ interface SandboxStatusResponse {
   status?: Record<string, unknown>;
 }
 
+// OSS 相关类型
+interface OssCredentials {
+  accessKeyId: string;
+  accessKeySecret: string;
+  securityToken: string;
+  expiration: string;
+}
+
+interface DownloadFileResponse {
+  success: boolean;
+  message: string;
+}
+
 // 枚举
 enum SpeedupType { APT, PIP, GITHUB }
 enum RunMode { NORMAL, NOHUP }
+type UploadMode = 'auto' | 'direct' | 'oss';
 ```
 
 ---

@@ -206,3 +206,6 @@ describe('FileSystem', () => {
     });
   });
 });
+
+// Note: downloadFile tests are in client.test.ts since the implementation
+// is in Sandbox.downloadFile, not FileSystem.downloadFile
