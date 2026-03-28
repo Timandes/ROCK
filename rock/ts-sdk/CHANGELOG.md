@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.7] - 2026-03-28
+
+### Fixed
+
+- **nohup Mode PATH Issue** - Fixed `downloadFile` to wrap ossutil command with `bash -c`
+  - When using nohup mode, the shell is `/bin/sh` which may not have `/usr/local/bin` in PATH
+  - ossutil is typically installed in `/usr/local/bin`, causing "command not found" errors
+  - Solution: wrap ossutil commands with `bash -c` to ensure correct PATH
+  - Matches Python SDK implementation using `shlex.quote()`
+
 ## [1.3.6] - 2026-03-28
 
 ### Fixed
