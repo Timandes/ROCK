@@ -809,7 +809,7 @@ export class Sandbox extends AbstractSandbox {
       await this.ossBucket.put(objectName, sourcePath);
 
       // Generate signed URL for sandbox to download
-      const signedUrl = this.ossBucket.signatureUrl(objectName, 600);
+      const signedUrl = this.ossBucket.signatureUrl(objectName, { expires: 600 });
 
       // Download in sandbox using wget
       const downloadCmd = `wget -c -O '${targetPath}' '${signedUrl}'`;
