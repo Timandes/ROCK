@@ -777,7 +777,9 @@ export class Sandbox extends AbstractSandbox {
       // Upload from sandbox to OSS via ossutil v2
       // ossutil v2 uses command-line parameters for credentials (no separate config needed)
       // This matches the Python SDK implementation
-      const uploadToOssCmd = `ossutil cp '${remotePath}' 'oss://${bucketName}/${objectName}' --access-key-id '${credentials.accessKeyId}' --access-key-secret '${credentials.accessKeySecret}' --sts-token '${credentials.securityToken}' --endpoint '${endpoint}' --region '${region}'`;
+      // Wrap with bash -c for nohup mode to ensure correct PATH (ossutil is in /usr/local/bin)
+      const ossutilInnerCmd = `ossutil cp '${remotePath}' 'oss://${bucketName}/${objectName}' --access-key-id '${credentials.accessKeyId}' --access-key-secret '${credentials.accessKeySecret}' --sts-token '${credentials.securityToken}' --endpoint '${endpoint}' --region '${region}'`;
+      const uploadToOssCmd = `bash -c '${ossutilInnerCmd.replace(/'/g, "'\"'\"'")}'`;
       const uploadResult = await this.arun(uploadToOssCmd, { mode: 'nohup', waitTimeout: 600 });
       if (uploadResult.exitCode !== 0) {
         return { success: false, message: `Sandbox to OSS upload failed: ${uploadResult.output}` };
