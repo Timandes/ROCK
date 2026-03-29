@@ -57,6 +57,12 @@ import type {
   UploadRequest,
   CloseSessionRequest,
   UploadMode,
+  DownloadMode,
+  UploadOptions,
+  DownloadOptions,
+  ProgressInfo,
+  UploadPhase,
+  DownloadPhase,
 } from '../types/requests.js';
 import { envVars } from '../env_vars.js';
 
@@ -642,9 +648,14 @@ export class Sandbox extends AbstractSandbox {
     return this.uploadByPath(request.sourcePath, request.targetPath);
   }
 
-  async uploadByPath(sourcePath: string, targetPath: string, uploadMode: UploadMode = 'auto', timeout?: number): Promise<UploadResponse> {
+  async uploadByPath(sourcePath: string, targetPath: string, options?: UploadOptions): Promise<UploadResponse> {
     const url = `${this.url}/upload`;
     const headers = this.buildHeaders();
+
+    // Extract options with defaults
+    const uploadMode = options?.uploadMode ?? 'auto';
+    const timeout = options?.timeout;
+    const onProgress = options?.onProgress;
 
     try {
       const fs = await import('fs/promises');
@@ -663,7 +674,7 @@ export class Sandbox extends AbstractSandbox {
       const ossThreshold = 1024 * 1024; // 1MB
 
       if (uploadMode === 'oss' || (uploadMode === 'auto' && ossEnabled && fileSize > ossThreshold)) {
-        return this.uploadViaOss(sourcePath, targetPath, timeout);
+        return this.uploadViaOss(sourcePath, targetPath, timeout, onProgress);
       }
 
       // Use async readFile instead of sync readFileSync
@@ -726,9 +737,92 @@ export class Sandbox extends AbstractSandbox {
   }
 
   /**
-   * Download file from sandbox via OSS
+   * Download file from sandbox
+   * @param remotePath - File path in sandbox
+   * @param localPath - Local file path
+   * @param downloadMode - Download mode: 'auto' (default), 'direct', or 'oss'
+   * @param timeout - Optional timeout in milliseconds for OSS mode
    */
-  async downloadFile(remotePath: string, localPath: string, timeout?: number): Promise<DownloadFileResponse> {
+  async downloadFile(
+    remotePath: string,
+    localPath: string,
+    options?: DownloadOptions
+  ): Promise<DownloadFileResponse> {
+    // Extract options with defaults
+    const downloadMode = options?.downloadMode ?? 'auto';
+    const timeout = options?.timeout;
+    const onProgress = options?.onProgress;
+
+    // Validate remote path
+    if (!remotePath || remotePath.trim() === '') {
+      return { success: false, message: 'Remote path is required' };
+    }
+
+    // Check if remote file exists
+    const checkResult = await this.execute({ command: ['test', '-f', remotePath], timeout: 60 });
+    if (checkResult.exitCode !== 0) {
+      return { success: false, message: `Remote file does not exist: ${remotePath}` };
+    }
+
+    // direct mode: use readFile API
+    if (downloadMode === 'direct') {
+      return this.downloadDirect(remotePath, localPath);
+    }
+
+    // oss mode: use OSS as intermediary
+    if (downloadMode === 'oss') {
+      return this.downloadViaOss(remotePath, localPath, timeout, onProgress);
+    }
+
+    // auto mode: choose based on file size and OSS availability
+    // Get remote file size
+    const sizeResult = await this.execute({ command: ['stat', '-c', '%s', remotePath], timeout: 60 });
+    if (sizeResult.exitCode !== 0) {
+      // Fall back to direct if we can't get file size
+      return this.downloadDirect(remotePath, localPath);
+    }
+
+    const fileSize = parseInt(sizeResult.stdout.trim(), 10);
+    const ossThreshold = 1024 * 1024; // 1MB
+    const ossEnabled = envVars.ROCK_OSS_ENABLE;
+
+    // OSS enabled AND file >= 1MB: use OSS
+    if (ossEnabled && fileSize >= ossThreshold) {
+      return this.downloadViaOss(remotePath, localPath, timeout, onProgress);
+    }
+
+    // Otherwise: use direct
+    return this.downloadDirect(remotePath, localPath);
+  }
+
+  /**
+   * Download file directly via readFile API
+   */
+  private async downloadDirect(remotePath: string, localPath: string): Promise<DownloadFileResponse> {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+
+      // Read file content from sandbox
+      const response = await this.readFile({ path: remotePath });
+
+      // Ensure parent directory exists
+      const parentDir = path.dirname(localPath);
+      await fs.mkdir(parentDir, { recursive: true });
+
+      // Write to local file
+      await fs.writeFile(localPath, response.content, 'utf-8');
+
+      return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
+    } catch (e) {
+      return { success: false, message: `Direct download failed: ${e}` };
+    }
+  }
+
+  /**
+   * Download file via OSS as intermediary
+   */
+  private async downloadViaOss(remotePath: string, localPath: string, timeout?: number, onProgress?: (info: ProgressInfo) => void): Promise<DownloadFileResponse> {
     // Check OSS is enabled
     if (!envVars.ROCK_OSS_ENABLE) {
       return {
@@ -738,17 +832,6 @@ export class Sandbox extends AbstractSandbox {
     }
 
     try {
-      // Validate remote path
-      if (!remotePath || remotePath.trim() === '') {
-        return { success: false, message: 'Remote path is required' };
-      }
-
-      // Check if remote file exists
-      const checkResult = await this.execute({ command: ['test', '-f', remotePath], timeout: 60 });
-      if (checkResult.exitCode !== 0) {
-        return { success: false, message: `Remote file does not exist: ${remotePath}` };
-      }
-
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
         await this.setupOss(timeout);
@@ -785,9 +868,17 @@ export class Sandbox extends AbstractSandbox {
         return { success: false, message: `Sandbox to OSS upload failed: ${uploadResult.output}` };
       }
 
-      // Download from OSS to local via ali-oss with timeout
+      // Download from OSS to local via ali-oss with timeout and progress
       const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
-      const result = await this.ossBucket.get(objectName, localPath, { timeout: ossTimeout });
+      const result = await this.ossBucket.get(objectName, localPath, { 
+        timeout: ossTimeout,
+        progress: (p: number) => {
+          onProgress?.({
+            phase: 'download-to-local',
+            percent: Math.round(p * 100)
+          });
+        }
+      });
 
       // Cleanup OSS object
       try {
@@ -798,7 +889,7 @@ export class Sandbox extends AbstractSandbox {
 
       return { success: true, message: `Successfully downloaded ${remotePath} to ${localPath}` };
     } catch (e) {
-      return { success: false, message: `Download failed: ${e}` };
+      return { success: false, message: `OSS download failed: ${e}` };
     }
   }
 
@@ -806,7 +897,7 @@ export class Sandbox extends AbstractSandbox {
    * Upload file via OSS (internal method)
    * @param timeout - Optional timeout in milliseconds
    */
-  private async uploadViaOss(sourcePath: string, targetPath: string, timeout?: number): Promise<UploadResponse> {
+  private async uploadViaOss(sourcePath: string, targetPath: string, timeout?: number, onProgress?: (info: ProgressInfo) => void): Promise<UploadResponse> {
     try {
       // Setup OSS bucket if needed
       if (this.ossBucket === null || this.isTokenExpired()) {
@@ -835,14 +926,34 @@ export class Sandbox extends AbstractSandbox {
         await this.ossBucket.multipartUpload(objectName, sourcePath, {
           timeout: ossTimeout,
           partSize: multipartThreshold, // 1MB per part
+          progress: (p: number) => {
+            onProgress?.({
+              phase: 'upload-to-oss',
+              percent: Math.round(p * 100)
+            });
+          }
         });
       } else {
-        await this.ossBucket.put(objectName, sourcePath, { timeout: ossTimeout });
+        await this.ossBucket.put(objectName, sourcePath, { 
+          timeout: ossTimeout,
+          progress: (p: number) => {
+            onProgress?.({
+              phase: 'upload-to-oss',
+              percent: Math.round(p * 100)
+            });
+          }
+        });
       }
 
       // Generate signed URL for sandbox to download
       const signedUrl = this.ossBucket.signatureUrl(objectName, { expires: 600 });
 
+      // Notify: starting sandbox download phase
+      onProgress?.({
+        phase: 'download-to-sandbox',
+        percent: -1
+      });
+      
       // Download in sandbox using wget
       const downloadCmd = `wget -c -O '${targetPath}' '${signedUrl}'`;
       await this.arun(downloadCmd, { mode: 'nohup', waitTimeout: 600 });
