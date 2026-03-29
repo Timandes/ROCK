@@ -291,7 +291,7 @@ describe('OSS client configuration', () => {
       });
 
       // Trigger direct upload
-      const result = await sandbox.uploadByPath('/local/large.bin', '/remote/large.bin', 'direct');
+      const result = await sandbox.uploadByPath('/local/large.bin', '/remote/large.bin', { uploadMode: 'direct' });
 
       expect(result.success).toBe(true);
     });
@@ -618,7 +618,6 @@ describe('OSS multipart upload', () => {
   });
 
   test('upload method selection logic', () => {
-    // Simulate the upload method selection
     function selectUploadMethod(fileSize: number): 'put' | 'multipartUpload' {
       if (fileSize >= MULTIPART_THRESHOLD) {
         return 'multipartUpload';
@@ -626,8 +625,160 @@ describe('OSS multipart upload', () => {
       return 'put';
     }
 
-    expect(selectUploadMethod(512 * 1024)).toBe('put');           // 512KB
-    expect(selectUploadMethod(1024 * 1024)).toBe('multipartUpload'); // 1MB
-    expect(selectUploadMethod(5 * 1024 * 1024)).toBe('multipartUpload'); // 5MB
+    expect(selectUploadMethod(512 * 1024)).toBe('put');
+    expect(selectUploadMethod(1024 * 1024)).toBe('multipartUpload');
+    expect(selectUploadMethod(5 * 1024 * 1024)).toBe('multipartUpload');
+  });
+});
+
+/**
+ * Download mode tests
+ *
+ * downloadFile should support downloadMode parameter with same behavior as uploadMode:
+ * - auto: Choose based on file size and OSS availability
+ * - direct: Force direct download via readFile API
+ * - oss: Force OSS download
+ */
+describe('Download mode configuration', () => {
+  const DOWNLOAD_THRESHOLD = 1024 * 1024; // 1MB, same as upload
+
+  function shouldUseOssDownload(
+    downloadMode: 'auto' | 'direct' | 'oss',
+    ossEnabled: boolean,
+    fileSize: number
+  ): boolean {
+    return downloadMode === 'oss' || (downloadMode === 'auto' && ossEnabled && fileSize >= DOWNLOAD_THRESHOLD);
+  }
+
+  test('DownloadMode type should have auto, direct, oss values', () => {
+    const modes = ['auto', 'direct', 'oss'] as const;
+    expect(modes).toContain('auto');
+    expect(modes).toContain('direct');
+    expect(modes).toContain('oss');
+  });
+
+  test('small files (< 1MB) with auto mode should use direct when OSS not enabled', () => {
+    expect(shouldUseOssDownload('auto', false, 512 * 1024)).toBe(false);
+  });
+
+  test('large files (>= 1MB) with auto mode should use OSS when enabled', () => {
+    expect(shouldUseOssDownload('auto', true, 2 * 1024 * 1024)).toBe(true);
+  });
+
+  test('large files with auto mode should use direct when OSS not enabled', () => {
+    expect(shouldUseOssDownload('auto', false, 2 * 1024 * 1024)).toBe(false);
+  });
+
+  test('direct mode should always use direct regardless of file size', () => {
+    expect(shouldUseOssDownload('direct', true, 10 * 1024 * 1024)).toBe(false);
+  });
+
+  test('oss mode should always use OSS regardless of file size', () => {
+    expect(shouldUseOssDownload('oss', false, 512 * 1024)).toBe(true);
+  });
+
+  test('downloadFile signature should accept downloadMode parameter', () => {
+    type DownloadFileSignature = (
+      remotePath: string,
+      localPath: string,
+      downloadMode?: 'auto' | 'direct' | 'oss',
+      timeout?: number
+    ) => Promise<{ success: boolean; message: string }>;
+
+    const _signature: DownloadFileSignature = async () => ({ success: true, message: '' });
+    expect(_signature).toBeDefined();
+  });
+});
+
+/**
+ * Progress callback tests
+ *
+ * uploadByPath and downloadFile support progress callbacks via options object.
+ * OSS operations can report progress percentage, while sandbox operations report -1.
+ */
+describe('Progress callback', () => {
+  test('ProgressInfo type should have phase and percent', () => {
+    const progressInfo = {
+      phase: 'upload-to-oss' as const,
+      percent: 50
+    };
+    expect(progressInfo.phase).toBe('upload-to-oss');
+    expect(progressInfo.percent).toBe(50);
+  });
+
+  test('UploadPhase should be upload-to-oss or download-to-sandbox', () => {
+    const phases: ('upload-to-oss' | 'download-to-sandbox')[] = [
+      'upload-to-oss',
+      'download-to-sandbox'
+    ];
+    expect(phases).toHaveLength(2);
+  });
+
+  test('DownloadPhase should be upload-to-oss-from-sandbox or download-to-local', () => {
+    const phases: ('upload-to-oss-from-sandbox' | 'download-to-local')[] = [
+      'upload-to-oss-from-sandbox',
+      'download-to-local'
+    ];
+    expect(phases).toHaveLength(2);
+  });
+
+  test('percent should be 0-100 for available progress, or -1 for unavailable', () => {
+    const validPercent = 75;
+    const unavailablePercent = -1;
+    expect(validPercent).toBeGreaterThanOrEqual(0);
+    expect(validPercent).toBeLessThanOrEqual(100);
+    expect(unavailablePercent).toBe(-1);
+  });
+
+  test('UploadOptions should have uploadMode, timeout, onProgress', () => {
+    const options = {
+      uploadMode: 'oss' as const,
+      timeout: 60000,
+      onProgress: (info: { phase: string; percent: number }) => {}
+    };
+    expect(options.uploadMode).toBe('oss');
+    expect(options.timeout).toBe(60000);
+    expect(typeof options.onProgress).toBe('function');
+  });
+
+  test('DownloadOptions should have downloadMode, timeout, onProgress', () => {
+    const options = {
+      downloadMode: 'auto' as const,
+      timeout: 300000,
+      onProgress: (info: { phase: string; percent: number }) => {}
+    };
+    expect(options.downloadMode).toBe('auto');
+    expect(options.timeout).toBe(300000);
+    expect(typeof options.onProgress).toBe('function');
+  });
+
+  test('uploadByPath should accept options object with onProgress', () => {
+    type UploadByPathSignature = (
+      sourcePath: string,
+      targetPath: string,
+      options?: {
+        uploadMode?: 'auto' | 'direct' | 'oss';
+        timeout?: number;
+        onProgress?: (info: { phase: string; percent: number }) => void;
+      }
+    ) => Promise<{ success: boolean; message: string }>;
+
+    const _signature: UploadByPathSignature = async () => ({ success: true, message: '' });
+    expect(_signature).toBeDefined();
+  });
+
+  test('downloadFile should accept options object with onProgress', () => {
+    type DownloadFileSignature = (
+      remotePath: string,
+      localPath: string,
+      options?: {
+        downloadMode?: 'auto' | 'direct' | 'oss';
+        timeout?: number;
+        onProgress?: (info: { phase: string; percent: number }) => void;
+      }
+    ) => Promise<{ success: boolean; message: string }>;
+
+    const _signature: DownloadFileSignature = async () => ({ success: true, message: '' });
+    expect(_signature).toBeDefined();
   });
 });

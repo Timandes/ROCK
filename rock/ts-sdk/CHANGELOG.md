@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.9] - 2026-03-29
 
+### Added
+
+- **Progress Callback Support** - Added `onProgress` callback to upload/download operations
+  - New types: `ProgressInfo`, `UploadPhase`, `DownloadPhase`, `UploadOptions`, `DownloadOptions`
+  - OSS operations report progress percentage (0-100)
+  - Sandbox operations report `-1` (progress unavailable)
+  - Progress phases: `upload-to-oss`, `download-to-sandbox`, `upload-to-oss-from-sandbox`, `download-to-local`
+
+### Changed
+
+- **BREAKING: API Signature Change** - `uploadByPath` and `downloadFile` now use options object
+  - Old: `uploadByPath(sourcePath, targetPath, uploadMode?, timeout?)`
+  - New: `uploadByPath(sourcePath, targetPath, options?: UploadOptions)`
+  - Old: `downloadFile(remotePath, localPath, downloadMode?, timeout?)`
+  - New: `downloadFile(remotePath, localPath, options?: DownloadOptions)`
+  - `UploadOptions`: `{ uploadMode?, timeout?, onProgress? }`
+  - `DownloadOptions`: `{ downloadMode?, timeout?, onProgress? }`
+
+- **Download Mode Support** - Added `downloadMode` parameter to `downloadFile` API
+  - `downloadFile(remotePath, localPath, downloadMode?, timeout?)` now supports download mode selection
+  - `auto` (default): Automatically choose based on file size and OSS availability
+  - `direct`: Force direct download via readFile API
+  - `oss`: Force OSS download
+  - Symmetric with `uploadByPath` upload mode behavior
+  - Threshold: 1MB (same as upload)
+
 ### Fixed
 
 - **OSS Large File Upload** - Fixed connection issues when uploading large files via OSS
