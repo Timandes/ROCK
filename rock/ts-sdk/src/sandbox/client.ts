@@ -821,9 +821,24 @@ export class Sandbox extends AbstractSandbox {
       const fileName = sourcePath.split('/').pop() ?? 'file';
       const objectName = `${timestamp}-${fileName}`;
 
-      // Upload to OSS with timeout option
+      // Check file size to determine upload method
+      const fs = await import('fs/promises');
+      const stats = await fs.stat(sourcePath);
+      const fileSize = stats.size;
+      const multipartThreshold = 1024 * 1024; // 1MB
+
       const ossTimeout = timeout ?? envVars.ROCK_OSS_TIMEOUT;
-      await this.ossBucket.put(objectName, sourcePath, { timeout: ossTimeout });
+
+      // Use multipartUpload for large files (>= 1MB) to avoid connection issues
+      // Matches Python SDK's oss2.resumable_upload behavior
+      if (fileSize >= multipartThreshold) {
+        await this.ossBucket.multipartUpload(objectName, sourcePath, {
+          timeout: ossTimeout,
+          partSize: multipartThreshold, // 1MB per part
+        });
+      } else {
+        await this.ossBucket.put(objectName, sourcePath, { timeout: ossTimeout });
+      }
 
       // Generate signed URL for sandbox to download
       const signedUrl = this.ossBucket.signatureUrl(objectName, { expires: 600 });

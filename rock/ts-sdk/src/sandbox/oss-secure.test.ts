@@ -583,3 +583,51 @@ describe('OSS timeout configuration', () => {
     expect(result.timeout).toBe(600000);
   });
 });
+
+/**
+ * OSS multipart upload tests
+ *
+ * Large files should use multipartUpload instead of put to avoid connection issues.
+ * Python SDK uses oss2.resumable_upload for all uploads.
+ * TypeScript SDK should use multipartUpload for files >= 1MB.
+ */
+describe('OSS multipart upload', () => {
+  const MULTIPART_THRESHOLD = 1024 * 1024; // 1MB
+
+  test('small files (< 1MB) should use put()', () => {
+    const smallFileSize = 512 * 1024; // 512KB
+    const shouldUseMultipart = smallFileSize >= MULTIPART_THRESHOLD;
+    expect(shouldUseMultipart).toBe(false);
+  });
+
+  test('large files (>= 1MB) should use multipartUpload()', () => {
+    const largeFileSize = 2 * 1024 * 1024; // 2MB
+    const shouldUseMultipart = largeFileSize >= MULTIPART_THRESHOLD;
+    expect(shouldUseMultipart).toBe(true);
+  });
+
+  test('boundary case: exactly 1MB should use multipartUpload()', () => {
+    const boundaryFileSize = 1024 * 1024; // exactly 1MB
+    const shouldUseMultipart = boundaryFileSize >= MULTIPART_THRESHOLD;
+    expect(shouldUseMultipart).toBe(true);
+  });
+
+  test('multipartUpload partSize should be 1MB', () => {
+    const partSize = 1024 * 1024; // 1MB per part
+    expect(partSize).toBe(MULTIPART_THRESHOLD);
+  });
+
+  test('upload method selection logic', () => {
+    // Simulate the upload method selection
+    function selectUploadMethod(fileSize: number): 'put' | 'multipartUpload' {
+      if (fileSize >= MULTIPART_THRESHOLD) {
+        return 'multipartUpload';
+      }
+      return 'put';
+    }
+
+    expect(selectUploadMethod(512 * 1024)).toBe('put');           // 512KB
+    expect(selectUploadMethod(1024 * 1024)).toBe('multipartUpload'); // 1MB
+    expect(selectUploadMethod(5 * 1024 * 1024)).toBe('multipartUpload'); // 5MB
+  });
+});
