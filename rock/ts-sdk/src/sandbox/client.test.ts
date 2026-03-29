@@ -1119,22 +1119,41 @@ describe('downloadFile()', () => {
     });
   });
 
-  test('should return failure when OSS is not enabled', async () => {
-    // OSS is disabled by default in test environment
-    const result = await sandbox.downloadFile('/remote/file.txt', '/local/file.txt');
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain('OSS');
-  });
-
   test('should return failure when remote path is empty', async () => {
-    // OSS must be enabled to reach path validation
-    // Since OSS is disabled by default, this test verifies the OSS check happens first
     const result = await sandbox.downloadFile('', '/local/file.txt');
 
     expect(result.success).toBe(false);
-    // OSS check happens before path validation
-    expect(result.message).toContain('OSS');
+    expect(result.message).toContain('Remote path is required');
+  });
+
+  test('should accept downloadMode parameter', async () => {
+    // Mock execute for file existence check and size check
+    mockPost.mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: {
+          stdout: 'File content',
+          stderr: '',
+          exit_code: 0,
+        },
+      },
+      headers: {},
+    }).mockResolvedValueOnce({
+      data: {
+        status: 'Success',
+        result: {
+          stdout: '1024',
+          stderr: '',
+          exit_code: 0,
+        },
+      },
+      headers: {},
+    });
+
+    // Should compile and accept downloadMode parameter
+    const result = await sandbox.downloadFile('/remote/file.txt', '/local/file.txt', { downloadMode: 'direct' });
+
+    expect(result).toBeDefined();
   });
 
   test('should accept uploadMode parameter', async () => {
@@ -1152,7 +1171,7 @@ describe('downloadFile()', () => {
     mockReadFile.mockResolvedValueOnce(Buffer.from('test content'));
 
     // Should compile and accept uploadMode parameter
-    const result = await sandbox.uploadByPath('/local/file.txt', '/remote/file.txt', 'direct');
+    const result = await sandbox.uploadByPath('/local/file.txt', '/remote/file.txt', { uploadMode: 'direct' });
 
     expect(result).toBeDefined();
   });
@@ -1223,7 +1242,7 @@ describe('uploadByPath() with uploadMode', () => {
     mockReadFile.mockResolvedValueOnce(Buffer.from('test content'));
 
     // Should compile and accept uploadMode parameter
-    const result = await sandbox.uploadByPath('/local/file.txt', '/remote/file.txt', 'direct');
+    const result = await sandbox.uploadByPath('/local/file.txt', '/remote/file.txt', { uploadMode: 'direct' });
 
     expect(result).toBeDefined();
   });

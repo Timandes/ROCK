@@ -73,6 +73,16 @@ export const UploadModeSchema = z.enum(['auto', 'direct', 'oss']);
 export type UploadMode = z.infer<typeof UploadModeSchema>;
 
 /**
+ * Download mode enum
+ * - auto: Automatically choose download method based on file size and OSS availability
+ * - direct: Force direct HTTP download via readFile API
+ * - oss: Force OSS download
+ */
+export const DownloadModeSchema = z.enum(['auto', 'direct', 'oss']);
+
+export type DownloadMode = z.infer<typeof DownloadModeSchema>;
+
+/**
  * Upload file request
  * Note: uploadMode defaults to 'auto' in the implementation, not in the schema
  */
@@ -114,3 +124,45 @@ export const ChmodRequestSchema = z.object({
 });
 
 export type ChmodRequest = z.infer<typeof ChmodRequestSchema>;
+
+/**
+ * Progress phase for upload operations
+ * - upload-to-oss: Uploading from local to OSS
+ * - download-to-sandbox: Downloading from OSS to sandbox (via wget)
+ */
+export type UploadPhase = 'upload-to-oss' | 'download-to-sandbox';
+
+/**
+ * Progress phase for download operations
+ * - upload-to-oss-from-sandbox: Uploading from sandbox to OSS (via ossutil)
+ * - download-to-local: Downloading from OSS to local
+ */
+export type DownloadPhase = 'upload-to-oss-from-sandbox' | 'download-to-local';
+
+/**
+ * Progress information callback
+ * @param phase - Current phase of the transfer
+ * @param percent - Progress percentage (0-100), or -1 if not available
+ */
+export interface ProgressInfo {
+  phase: UploadPhase | DownloadPhase;
+  percent: number;
+}
+
+/**
+ * Upload options
+ */
+export interface UploadOptions {
+  uploadMode?: UploadMode;
+  timeout?: number;
+  onProgress?: (info: ProgressInfo) => void;
+}
+
+/**
+ * Download options
+ */
+export interface DownloadOptions {
+  downloadMode?: DownloadMode;
+  timeout?: number;
+  onProgress?: (info: ProgressInfo) => void;
+}
