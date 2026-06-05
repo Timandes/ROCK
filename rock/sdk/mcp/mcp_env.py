@@ -14,9 +14,7 @@ def _load_data_lifecycle_factory():
     try:
         from scaffoldhub.tools.base import DataLifecycleFactory
     except ImportError as error:
-        raise ImportError(
-            "rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`."
-        ) from error
+        raise ImportError("rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`.") from error
     return DataLifecycleFactory
 
 
@@ -185,8 +183,7 @@ class McpEnv:
 
         auth = self._server_auth(server_name)
         resolved_config["env"] = {
-            env_key: self._resolve_env_value(env_value, auth)
-            for env_key, env_value in env.items()
+            env_key: self._resolve_env_value(env_value, auth) for env_key, env_value in env.items()
         }
         return resolved_config
 

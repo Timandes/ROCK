@@ -20,11 +20,7 @@ def calculator_server_config() -> dict:
 
 
 def require_rock_credentials():
-    missing = [
-        name
-        for name in ("ROCK_API_KEY", "ROCK_USER_ID")
-        if not os.getenv(name, "").strip()
-    ]
+    missing = [name for name in ("ROCK_API_KEY", "ROCK_USER_ID") if not os.getenv(name, "").strip()]
     if missing:
         pytest.skip(f"Missing ROCK credentials: {', '.join(missing)}")
 

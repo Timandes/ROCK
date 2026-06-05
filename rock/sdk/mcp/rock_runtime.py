@@ -199,9 +199,7 @@ class RockRuntime:
 
     async def _launch_servers(self) -> None:
         sandbox = self._require_sandbox()
-        result = await sandbox.execute(
-            Command(command=["bash", "-c", "bash /app/launch.sh > /tmp/launch.log 2>&1 &"])
-        )
+        result = await sandbox.execute(Command(command=["bash", "-c", "bash /app/launch.sh > /tmp/launch.log 2>&1 &"]))
         if result.exit_code != 0:
             raise RockRuntimeError(f"Failed to launch MCP servers: {result}")
 
