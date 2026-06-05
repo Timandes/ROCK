@@ -92,6 +92,10 @@ model-service = [
     "httpx",
 ]
 
+mcp = [
+    "scaffoldhub>=0.1.0.dev1",
+]
+
 
 all = [
     "rl-rock[admin]",
@@ -120,6 +124,7 @@ test = [
     "pytest-trio",
     "pytest-twisted",
     "pytest-env",
+    "tomli>=2.0.0; python_version < '3.11'",
 ]
 
 [tool.setuptools.packages.find]
