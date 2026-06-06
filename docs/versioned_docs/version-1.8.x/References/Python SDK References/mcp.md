@@ -8,8 +8,12 @@ inside ROCK sandboxes.
 Install the MCP extra when using ScaffoldHub-backed tool lifecycles:
 
 ```bash
-pip install "rl-rock[mcp]"
+pip install --extra-index-url https://artlab.alibaba-inc.com/1/pypi/simple "rl-rock[mcp]"
 ```
+
+The MCP extra currently supports Python 3.11 and 3.12 because the published
+ScaffoldHub package is Python 3.11+ and ROCK officially supports Python 3.10 to
+3.12.
 
 ## Basic Usage
 

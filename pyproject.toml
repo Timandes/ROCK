@@ -93,7 +93,7 @@ model-service = [
 ]
 
 mcp = [
-    "scaffoldhub>=0.1.0.dev1",
+    "scaffoldhub==0.1.0.dev1; python_version >= '3.11' and python_version < '3.13'",
 ]
 
 
@@ -132,6 +132,14 @@ where = ["."]
 
 [tool.setuptools.package-data]
 rock = ["rocklet/local_files/*"]
+
+[tool.uv.sources]
+scaffoldhub = { index = "artlab" }
+
+[[tool.uv.index]]
+name = "artlab"
+url = "https://artlab.alibaba-inc.com/1/pypi/simple"
+explicit = true
 
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"
