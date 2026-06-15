@@ -75,6 +75,12 @@ class FakeDataLifecycleFactory:
         return lifecycle
 
 
+class FailingReleaseAuthProvider(FakeAuthProvider):
+    def release_active_leases(self) -> None:
+        self.release_active_leases_calls += 1
+        raise RuntimeError("database release failed")
+
+
 def install_fake_scaffoldhub(monkeypatch):
     scaffoldhub = ModuleType("scaffoldhub")
     auth = ModuleType("scaffoldhub.auth")
@@ -387,6 +393,73 @@ def test_mcp_env_release_preserves_lifecycles_when_runtime_stop_fails(monkeypatc
     assert env.resolved_servers == {}
     env.reset()
     assert lifecycle.reset_calls == 1
+
+
+def test_mcp_env_release_releases_auth_leases(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    runtime = RecordingRuntime()
+    env._rock_runtime = runtime
+    env.running = True
+    env.urls = {"slack": "https://example.test/slack/sse"}
+    env.resolved_servers = {"slack": slack_server_config()}
+
+    asyncio.run(env.release())
+
+    assert runtime.stopped is True
+    assert env.auth_provider.release_active_leases_calls == 1
+    assert env.is_alive() is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
+
+
+def test_mcp_env_release_retries_auth_release_when_runtime_is_not_running(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.running = False
+
+    asyncio.run(env.release())
+    asyncio.run(env.release())
+
+    assert env.auth_provider.release_active_leases_calls == 2
+
+
+def test_mcp_env_release_raises_when_auth_release_fails_and_clears_state(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    failing_provider = FailingReleaseAuthProvider()
+    env.auth_provider = failing_provider
+    env.data_lifecycle_factory.auth_provider = failing_provider
+    env._rock_runtime = RecordingRuntime()
+    env.running = True
+    env.urls = {"slack": "https://example.test/slack/sse"}
+    env.resolved_servers = {"slack": slack_server_config()}
+
+    with pytest.raises(RuntimeError, match="Failed to release MCP auth leases") as exc_info:
+        asyncio.run(env.release())
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "database release failed"
+    assert failing_provider.release_active_leases_calls == 1
+    assert env.is_alive() is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
+
+
+def test_mcp_env_release_still_releases_auth_when_runtime_stop_fails(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env._rock_runtime = FailingStopRuntime()
+    env.running = True
+    env.urls = {"slack": "https://example.test/slack/sse"}
+    env.resolved_servers = {"slack": slack_server_config()}
+
+    asyncio.run(env.release())
+
+    assert env.auth_provider.release_active_leases_calls == 1
+    assert env.is_alive() is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
 
 
 def test_mcp_env_start_accepts_before_launch_hook(monkeypatch):
