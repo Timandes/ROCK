@@ -159,20 +159,29 @@ class McpEnv:
 
     async def release(self):
         """
-        Release the physical MCP runtime.
+        Release the physical MCP runtime and any active ScaffoldHub auth leases.
 
         Data cleanup is intentionally handled by explicit reset calls.
         """
+        auth_release_error: Exception | None = None
         try:
             if self.running:
                 try:
                     await self._rock_runtime.stop()
                 except Exception as error:
                     logger.warning("Failed to stop ROCK runtime during release: %s", error)
+
+            try:
+                self.auth_provider.release_active_leases()
+            except Exception as error:
+                auth_release_error = error
         finally:
             self.running = False
             self.urls = {}
             self.resolved_servers = {}
+
+        if auth_release_error is not None:
+            raise RuntimeError("Failed to release MCP auth leases") from auth_release_error
 
     def _resolve_server_config(self, server_name: str, server_config: Any) -> Any:
         if not isinstance(server_config, dict):
