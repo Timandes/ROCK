@@ -38,17 +38,17 @@ async def main():
         urls = env.get_urls()
         print(urls["calculator"])
     finally:
-        if env.is_alive():
-            await env.release()
+        await env.release()
 
 
 asyncio.run(main())
 ```
 
 `release()` is the cleanup boundary for both ROCK runtime resources and
-ScaffoldHub auth leases. Keep it in a `finally` block. If it raises because auth
-lease release failed, call it again after handling or logging the error to retry
-lease release.
+ScaffoldHub auth leases. Keep it in a `finally` block and call it even if
+`start()` fails before `env.is_alive()` becomes true. If auth lease release
+fails, `release()` raises `RuntimeError("Failed to release MCP auth leases")`;
+call it again after handling or logging the error to retry lease release.
 
 ## Lifecycle Data
 
@@ -65,8 +65,10 @@ env.reset()
 `reset()` only resets configured tool data. It does not stop the ROCK sandbox.
 Use `await env.release()` to stop the sandbox runtime and release any
 ScaffoldHub auth leases borrowed while resolving server credentials.
-If auth lease release fails, `release()` raises an exception and can be called
-again to retry lease release.
+Call it even when `env.is_alive()` is false, because server credential
+resolution can borrow auth before the runtime is marked alive. If auth lease
+release fails, `release()` raises `RuntimeError("Failed to release MCP auth leases")`
+and can be called again to retry lease release.
 
 ## Launch Hook
 
