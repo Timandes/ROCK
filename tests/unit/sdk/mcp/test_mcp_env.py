@@ -45,16 +45,23 @@ class FakeAuthProvider:
                 "SLACK_MCP_XOXB_TOKEN": "xoxb-test-token",
             }
         }
+        self.release_active_leases_calls = 0
 
     def provide(self, platform: str) -> dict:
         if platform not in self.auth:
             raise ValueError(f"Unsupported platform: {platform}")
         return self.auth[platform]
 
+    def release_active_leases(self) -> None:
+        self.release_active_leases_calls += 1
+
 
 class FakeDataLifecycleFactory:
-    def __init__(self):
-        self.auth_provider = FakeAuthProvider()
+    last_auth_provider = None
+
+    def __init__(self, auth_provider=None):
+        self.auth_provider = auth_provider or FakeAuthProvider()
+        FakeDataLifecycleFactory.last_auth_provider = self.auth_provider
         self.created = {}
 
     def supports(self, lifecycle_type: str) -> bool:
@@ -70,11 +77,14 @@ class FakeDataLifecycleFactory:
 
 def install_fake_scaffoldhub(monkeypatch):
     scaffoldhub = ModuleType("scaffoldhub")
+    auth = ModuleType("scaffoldhub.auth")
     tools = ModuleType("scaffoldhub.tools")
     base = ModuleType("scaffoldhub.tools.base")
+    auth.AuthProvider = FakeAuthProvider
     base.DataLifecycleFactory = FakeDataLifecycleFactory
 
     monkeypatch.setitem(sys.modules, "scaffoldhub", scaffoldhub)
+    monkeypatch.setitem(sys.modules, "scaffoldhub.auth", auth)
     monkeypatch.setitem(sys.modules, "scaffoldhub.tools", tools)
     monkeypatch.setitem(sys.modules, "scaffoldhub.tools.base", base)
 
@@ -149,6 +159,16 @@ def test_mcp_env_constructor_requires_servers_dict(monkeypatch):
 
     with pytest.raises(TypeError, match="servers must be a dict"):
         mcp_env.McpEnv(servers=[])
+
+
+def test_mcp_env_owns_auth_provider_and_passes_it_to_lifecycle_factory(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+
+    assert isinstance(env.auth_provider, FakeAuthProvider)
+    assert FakeDataLifecycleFactory.last_auth_provider is env.auth_provider
+    assert env.data_lifecycle_factory.auth_provider is env.auth_provider
 
 
 def test_mcp_env_constructor_reports_missing_scaffoldhub(monkeypatch):
