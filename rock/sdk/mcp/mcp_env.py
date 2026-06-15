@@ -10,12 +10,13 @@ from rock.sdk.sandbox.client import Sandbox
 logger = logging.getLogger(__name__)
 
 
-def _load_data_lifecycle_factory():
+def _load_scaffoldhub_components():
     try:
+        from scaffoldhub.auth import AuthProvider
         from scaffoldhub.tools.base import DataLifecycleFactory
     except ImportError as error:
         raise ImportError("rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`.") from error
-    return DataLifecycleFactory
+    return AuthProvider, DataLifecycleFactory
 
 
 class McpEnv:
@@ -47,8 +48,9 @@ class McpEnv:
         self.urls = {}
         self.servers = deepcopy(servers)
         self.resolved_servers = {}
-        data_lifecycle_factory = _load_data_lifecycle_factory()
-        self.data_lifecycle_factory = data_lifecycle_factory()
+        auth_provider_class, data_lifecycle_factory_class = _load_scaffoldhub_components()
+        self.auth_provider = auth_provider_class()
+        self.data_lifecycle_factory = data_lifecycle_factory_class(auth_provider=self.auth_provider)
         self.data_lifecycles: dict[str, Any] = {}
         self._rock_runtime = RockRuntime()
 
@@ -188,12 +190,8 @@ class McpEnv:
         return resolved_config
 
     def _server_auth(self, server_name: str) -> dict:
-        auth_provider = getattr(self.data_lifecycle_factory, "auth_provider", None)
-        if auth_provider is None:
-            return {}
-
         try:
-            return auth_provider.provide(server_name)
+            return self.auth_provider.provide(server_name)
         except ValueError:
             return {}
 

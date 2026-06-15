@@ -180,7 +180,7 @@ def test_mcp_env_constructor_reports_missing_scaffoldhub(monkeypatch):
     def raise_missing_dependency():
         raise ImportError("rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`.")
 
-    monkeypatch.setattr(module, "_load_data_lifecycle_factory", raise_missing_dependency)
+    monkeypatch.setattr(module, "_load_scaffoldhub_components", raise_missing_dependency)
 
     with pytest.raises(ImportError, match=r"rl-rock\[mcp\]"):
         module.McpEnv()
