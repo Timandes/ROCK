@@ -13,7 +13,7 @@ pip install --extra-index-url https://artlab.alibaba-inc.com/1/pypi/simple "rl-r
 
 The MCP extra currently supports Python 3.11 and 3.12 because the published
 ScaffoldHub package is Python 3.11+ and ROCK officially supports Python 3.10 to
-3.12.
+3.12. The MCP extra depends on `scaffoldhub==0.1.0.dev4`.
 
 ## Basic Usage
 
@@ -45,6 +45,11 @@ async def main():
 asyncio.run(main())
 ```
 
+`release()` is the cleanup boundary for both ROCK runtime resources and
+ScaffoldHub auth leases. Keep it in a `finally` block. If it raises because auth
+lease release failed, call it again after handling or logging the error to retry
+lease release.
+
 ## Lifecycle Data
 
 `McpEnv.init(data)`, `McpEnv.reset()`, and `McpEnv.dump()` delegate tool data
@@ -58,7 +63,10 @@ env.reset()
 ```
 
 `reset()` only resets configured tool data. It does not stop the ROCK sandbox.
-Use `await env.release()` to stop the sandbox runtime.
+Use `await env.release()` to stop the sandbox runtime and release any
+ScaffoldHub auth leases borrowed while resolving server credentials.
+If auth lease release fails, `release()` raises an exception and can be called
+again to retry lease release.
 
 ## Launch Hook
 
