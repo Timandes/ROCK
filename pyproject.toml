@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 authors = [{ name = "chatos@alibaba" }]
 requires-python = "<4.0,>=3.10"
 name = "rl-rock"
-version = "1.10.0.dev4"
+version = "1.10.0.dev5"
 description = "ROCK-Reinforcement Open Construction Kit"
 readme = "README.md"
 dependencies = [
@@ -93,7 +93,7 @@ model-service = [
 ]
 
 mcp = [
-    "scaffoldhub==0.1.0.dev5; python_version >= '3.11' and python_version < '3.13'",
+    "scaffoldhub==0.1.0.dev6; python_version >= '3.11' and python_version < '3.13'",
 ]
 
 
