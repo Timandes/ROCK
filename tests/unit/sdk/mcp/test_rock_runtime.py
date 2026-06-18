@@ -41,9 +41,9 @@ def test_rock_runtime_config_reads_defaults_and_numeric_values(monkeypatch):
     assert config.api_key == "rock-key"
     assert config.user_id == "user-001"
     assert config.base_url == "https://xrl.alibaba-inc.com"
-    assert config.image == "rock-registry.cn-hangzhou.cr.aliyuncs.com/envs/mcp-atlas-local:v0.4.0"
+    assert config.image == "rock-instances-registry-vpc.cn-shanghai.cr.aliyuncs.com/instance/rock-mcp-base:v0.10.1"
     assert config.experiment_id == "mcpenv"
-    assert config.cluster == "nt-a"
+    assert config.cluster == "vpc-nt-a"
     assert config.cpus == 4.0
     assert config.memory == "8g"
     assert config.auto_clear_seconds == 3600

@@ -65,11 +65,11 @@ class RockRuntimeConfig:
             api_key=api_key,
             image=os.getenv(
                 "ROCK_SANDBOX_IMAGE",
-                "rock-registry.cn-hangzhou.cr.aliyuncs.com/envs/mcp-atlas-local:v0.4.0",
+                "rock-instances-registry-vpc.cn-shanghai.cr.aliyuncs.com/instance/rock-mcp-base:v0.10.1",
             ),
             user_id=user_id,
             experiment_id=os.getenv("ROCK_EXPERIMENT_ID", "mcpenv"),
-            cluster=os.getenv("ROCK_CLUSTER", "nt-a"),
+            cluster=os.getenv("ROCK_CLUSTER", "vpc-nt-a"),
             cpus=cpus,
             memory=os.getenv("ROCK_SANDBOX_MEMORY", "8g"),
             auto_clear_seconds=auto_clear_seconds,
