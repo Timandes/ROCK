@@ -105,8 +105,13 @@ def test_rock_runtime_flat_parameters_override_options():
     [
         ({"health_check_retries": 0}, "health_check_retries must be >= 1"),
         ({"health_check_retries": 1.5}, "health_check_retries must be >= 1"),
+        ({"health_check_retries": True}, "health_check_retries must be >= 1"),
         ({"health_check_interval_seconds": 0}, "health_check_interval_seconds must be > 0"),
+        ({"health_check_interval_seconds": True}, "health_check_interval_seconds must be > 0"),
+        ({"health_check_interval_seconds": float("nan")}, "health_check_interval_seconds must be > 0"),
         ({"http_timeout_seconds": 0}, "http_timeout_seconds must be > 0"),
+        ({"http_timeout_seconds": True}, "http_timeout_seconds must be > 0"),
+        ({"http_timeout_seconds": float("nan")}, "http_timeout_seconds must be > 0"),
     ],
 )
 def test_rock_runtime_rejects_invalid_options(options_kwargs, message):
@@ -114,6 +119,21 @@ def test_rock_runtime_rejects_invalid_options(options_kwargs, message):
 
     with pytest.raises(RockRuntimeConfigError, match=message):
         RockRuntime(options=options)
+
+
+@pytest.mark.parametrize(
+    ("runtime_kwargs", "message"),
+    [
+        ({"health_check_retries": True}, "health_check_retries must be >= 1"),
+        ({"health_check_interval_seconds": True}, "health_check_interval_seconds must be > 0"),
+        ({"health_check_interval_seconds": float("nan")}, "health_check_interval_seconds must be > 0"),
+        ({"http_timeout_seconds": True}, "http_timeout_seconds must be > 0"),
+        ({"http_timeout_seconds": float("nan")}, "http_timeout_seconds must be > 0"),
+    ],
+)
+def test_rock_runtime_rejects_invalid_flat_option_overrides(runtime_kwargs, message):
+    with pytest.raises(RockRuntimeConfigError, match=message):
+        RockRuntime(options=rock_runtime.RockRuntimeOptions(), **runtime_kwargs)
 
 
 def test_rock_runtime_builds_server_urls_from_sandbox_id(monkeypatch):

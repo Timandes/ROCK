@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 import os
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
@@ -94,11 +95,21 @@ def _snapshot_runtime_options(options: RockRuntimeOptions | None) -> RockRuntime
 
 
 def _validate_runtime_options(options: RockRuntimeOptions) -> None:
-    if not isinstance(options.health_check_retries, int) or options.health_check_retries < 1:
+    if type(options.health_check_retries) is not int or options.health_check_retries < 1:
         raise RockRuntimeConfigError("health_check_retries must be >= 1")
-    if not isinstance(options.health_check_interval_seconds, int | float) or options.health_check_interval_seconds <= 0:
+    if (
+        not isinstance(options.health_check_interval_seconds, int | float)
+        or isinstance(options.health_check_interval_seconds, bool)
+        or not math.isfinite(options.health_check_interval_seconds)
+        or options.health_check_interval_seconds <= 0
+    ):
         raise RockRuntimeConfigError("health_check_interval_seconds must be > 0")
-    if not isinstance(options.http_timeout_seconds, int | float) or options.http_timeout_seconds <= 0:
+    if (
+        not isinstance(options.http_timeout_seconds, int | float)
+        or isinstance(options.http_timeout_seconds, bool)
+        or not math.isfinite(options.http_timeout_seconds)
+        or options.http_timeout_seconds <= 0
+    ):
         raise RockRuntimeConfigError("http_timeout_seconds must be > 0")
 
 
