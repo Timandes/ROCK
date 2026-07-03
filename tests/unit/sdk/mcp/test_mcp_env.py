@@ -609,3 +609,34 @@ def test_mcp_env_exposes_raw_sandbox_property(monkeypatch):
     mcp_env = reload_mcp_env(monkeypatch)
 
     assert isinstance(mcp_env.McpEnv.sandbox, property)
+
+
+def test_mcp_env_accepts_runtime_options_and_passes_snapshot_to_rock_runtime(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    options = mcp_env.RockRuntimeOptions(
+        health_check_retries=12,
+        health_check_interval_seconds=5.0,
+        http_timeout_seconds=2.5,
+    )
+
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()}, runtime_options=options)
+    options.health_check_retries = 1
+    options.health_check_interval_seconds = 1.0
+    options.http_timeout_seconds = 1.0
+
+    assert env._rock_runtime.options == mcp_env.RockRuntimeOptions(
+        health_check_retries=12,
+        health_check_interval_seconds=5.0,
+        http_timeout_seconds=2.5,
+    )
+    assert env._rock_runtime.health_check_retries == 12
+    assert env._rock_runtime.health_check_interval_seconds == 5.0
+    assert env._rock_runtime.http_timeout_seconds == 2.5
+
+
+def test_mcp_env_uses_default_runtime_options_when_not_provided(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+
+    assert env._rock_runtime.options == mcp_env.RockRuntimeOptions()

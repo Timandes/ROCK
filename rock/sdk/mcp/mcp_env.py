@@ -5,7 +5,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
-from rock.sdk.mcp.rock_runtime import BeforeLaunchHook, RockRuntime
+from rock.sdk.mcp.rock_runtime import BeforeLaunchHook, RockRuntime, RockRuntimeOptions
 from rock.sdk.sandbox.client import Sandbox
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,16 @@ def _load_scaffoldhub_components():
     return AuthProvider, DataLifecycleFactory, SandboxAware
 
 
+def _snapshot_runtime_options(options: RockRuntimeOptions | None) -> RockRuntimeOptions:
+    if options is None:
+        return RockRuntimeOptions()
+    return RockRuntimeOptions(
+        health_check_retries=options.health_check_retries,
+        health_check_interval_seconds=options.health_check_interval_seconds,
+        http_timeout_seconds=options.http_timeout_seconds,
+    )
+
+
 class McpEnv:
     """
     MCP environment manager.
@@ -35,13 +45,15 @@ class McpEnv:
     releases runtime resources.
     """
 
-    def __init__(self, servers: dict | None = None):
+    def __init__(self, servers: dict | None = None, runtime_options: RockRuntimeOptions | None = None):
         """
         Create an uninitialized MCP environment.
 
         Args:
             servers: Non-empty MCP server config. Top-level keys are server or
                 lifecycle types, such as ``slack``.
+            runtime_options: Optional ROCK runtime health-check options. The
+                values are snapshotted during construction.
 
         Raises:
             TypeError: Raised when servers is not a dict.
@@ -63,7 +75,7 @@ class McpEnv:
         self.data_lifecycle_factory = data_lifecycle_factory_class(auth_provider=self.auth_provider)
         self.sandbox_aware_class = sandbox_aware_class
         self.data_lifecycles: dict[str, Any] = {}
-        self._rock_runtime = RockRuntime()
+        self._rock_runtime = RockRuntime(options=_snapshot_runtime_options(runtime_options))
 
         for lifecycle_type in self.servers:
             if self.data_lifecycle_factory.supports(lifecycle_type):
