@@ -70,11 +70,23 @@ resolution can borrow auth before the runtime is marked alive. If auth lease
 release fails, `release()` raises `RuntimeError("Failed to release MCP auth leases")`
 and can be called again to retry lease release.
 
+## SandboxAware Lifecycles
+
+When ScaffoldHub exports `SandboxAware`, `McpEnv` automatically injects the
+started ROCK sandbox into each configured lifecycle that implements that
+interface.
+
+Injection happens after `/app/mcp-servers.json` is written and before the
+caller-provided `before_launch(sandbox)` callback runs. `McpEnv` only calls
+`set_sandbox(sandbox)`; it does not call lifecycle `before_launch()` methods
+automatically.
+
 ## Launch Hook
 
 `start()` accepts an optional sync or async `before_launch` callback. The
 callback receives the raw ROCK `Sandbox` after `/app/mcp-servers.json` is
-written and before `/app/launch.sh` starts MCP servers.
+written, after `SandboxAware` lifecycle injection, and before `/app/launch.sh`
+starts MCP servers.
 
 ```python
 async def before_launch(sandbox):
