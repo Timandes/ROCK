@@ -117,7 +117,7 @@ class RockRuntime:
             raise RockRuntimeError("ROCK sandbox has not been started")
 
         config = self._require_config()
-        return f"{config.base_url}/apis/envs/sandbox/v1/sandboxes/{sandbox_id}/proxy/{server_name}/sse"
+        return f"{config.base_url}/apis/envs/sandbox/v1/sandboxes/{sandbox_id}/proxy/mcp/{server_name}/sse"
 
     def get_all_server_urls(self, server_names: Iterable[str]) -> dict[str, str]:
         return {name: self.get_server_url(name) for name in server_names}

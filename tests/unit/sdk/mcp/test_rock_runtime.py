@@ -57,8 +57,8 @@ def test_rock_runtime_builds_server_urls_from_sandbox_id(monkeypatch):
     runtime._sandbox_id = "sandbox-123"
 
     assert runtime.get_all_server_urls(["calculator", "slack"]) == {
-        "calculator": "https://xrl.alibaba-inc.com/apis/envs/sandbox/v1/sandboxes/sandbox-123/proxy/calculator/sse",
-        "slack": "https://xrl.alibaba-inc.com/apis/envs/sandbox/v1/sandboxes/sandbox-123/proxy/slack/sse",
+        "calculator": "https://xrl.alibaba-inc.com/apis/envs/sandbox/v1/sandboxes/sandbox-123/proxy/mcp/calculator/sse",
+        "slack": "https://xrl.alibaba-inc.com/apis/envs/sandbox/v1/sandboxes/sandbox-123/proxy/mcp/slack/sse",
     }
 
 
