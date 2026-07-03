@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 from copy import deepcopy
 from typing import Any
@@ -16,7 +17,13 @@ def _load_scaffoldhub_components():
         from scaffoldhub.tools.base import DataLifecycleFactory
     except ImportError as error:
         raise ImportError("rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`.") from error
-    return AuthProvider, DataLifecycleFactory
+
+    try:
+        from scaffoldhub.tools.base import SandboxAware
+    except ImportError:
+        SandboxAware = None
+
+    return AuthProvider, DataLifecycleFactory, SandboxAware
 
 
 class McpEnv:
@@ -48,9 +55,10 @@ class McpEnv:
         self.urls = {}
         self.servers = deepcopy(servers)
         self.resolved_servers = {}
-        auth_provider_class, data_lifecycle_factory_class = _load_scaffoldhub_components()
+        auth_provider_class, data_lifecycle_factory_class, sandbox_aware_class = _load_scaffoldhub_components()
         self.auth_provider = auth_provider_class()
         self.data_lifecycle_factory = data_lifecycle_factory_class(auth_provider=self.auth_provider)
+        self.sandbox_aware_class = sandbox_aware_class
         self.data_lifecycles: dict[str, Any] = {}
         self._rock_runtime = RockRuntime()
 
@@ -84,7 +92,7 @@ class McpEnv:
         }
         urls = await self._rock_runtime.start(
             self.resolved_servers,
-            before_launch=before_launch,
+            before_launch=self._compose_before_launch(before_launch),
         )
         self.urls = urls
         self.running = True
@@ -182,6 +190,27 @@ class McpEnv:
 
         if auth_release_error is not None:
             raise RuntimeError("Failed to release MCP auth leases") from auth_release_error
+
+    def _compose_before_launch(self, before_launch: BeforeLaunchHook | None) -> BeforeLaunchHook:
+        async def composed_before_launch(sandbox: Sandbox) -> None:
+            self._inject_sandbox_into_lifecycles(sandbox)
+            if before_launch is None:
+                return
+
+            result = before_launch(sandbox)
+            if inspect.isawaitable(result):
+                await result
+
+        return composed_before_launch
+
+    def _inject_sandbox_into_lifecycles(self, sandbox: Sandbox) -> None:
+        sandbox_aware_class = self.sandbox_aware_class
+        if sandbox_aware_class is None:
+            return
+
+        for lifecycle in self.data_lifecycles.values():
+            if isinstance(lifecycle, sandbox_aware_class):
+                lifecycle.set_sandbox(sandbox)
 
     def _resolve_server_config(self, server_name: str, server_config: Any) -> Any:
         if not isinstance(server_config, dict):
