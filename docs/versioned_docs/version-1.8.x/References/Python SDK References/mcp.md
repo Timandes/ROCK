@@ -3,6 +3,9 @@
 `rock.sdk.mcp` provides `McpEnv`, a small SDK facade for running MCP servers
 inside ROCK sandboxes.
 
+`McpEnv` requires `servers` to be a non-empty `dict`; each top-level key is an
+MCP server name or lifecycle type.
+
 ## Installation
 
 Install the MCP extra when using ScaffoldHub-backed tool lifecycles:

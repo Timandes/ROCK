@@ -40,16 +40,19 @@ class McpEnv:
         Create an uninitialized MCP environment.
 
         Args:
-            servers: MCP server config. Top-level keys are server or lifecycle
-                types, such as ``slack``.
+            servers: Non-empty MCP server config. Top-level keys are server or
+                lifecycle types, such as ``slack``.
 
         Raises:
-            TypeError: Raised when servers is neither dict nor None.
+            TypeError: Raised when servers is not a dict.
+            ValueError: Raised when servers is None or empty.
         """
         if servers is None:
-            servers = {}
+            raise ValueError("servers must be a non-empty dict")
         if not isinstance(servers, dict):
             raise TypeError("servers must be a dict")
+        if not servers:
+            raise ValueError("servers must be a non-empty dict")
 
         self.running = False
         self.urls = {}

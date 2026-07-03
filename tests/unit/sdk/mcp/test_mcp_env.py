@@ -214,11 +214,25 @@ def test_mcp_env_init_dump_and_release_with_declared_server(monkeypatch):
     assert env.resolved_servers == {}
 
 
-def test_mcp_env_constructor_requires_servers_dict(monkeypatch):
+def test_mcp_env_constructor_rejects_missing_or_empty_servers(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+
+    with pytest.raises(ValueError, match="servers must be a non-empty dict"):
+        mcp_env.McpEnv()
+
+    with pytest.raises(ValueError, match="servers must be a non-empty dict"):
+        mcp_env.McpEnv(servers=None)
+
+    with pytest.raises(ValueError, match="servers must be a non-empty dict"):
+        mcp_env.McpEnv(servers={})
+
+
+@pytest.mark.parametrize("servers", [[], "slack"])
+def test_mcp_env_constructor_requires_servers_dict(monkeypatch, servers):
     mcp_env = reload_mcp_env(monkeypatch)
 
     with pytest.raises(TypeError, match="servers must be a dict"):
-        mcp_env.McpEnv(servers=[])
+        mcp_env.McpEnv(servers=servers)
 
 
 def test_mcp_env_owns_auth_provider_and_passes_it_to_lifecycle_factory(monkeypatch):
@@ -243,7 +257,7 @@ def test_mcp_env_constructor_reports_missing_scaffoldhub(monkeypatch):
     monkeypatch.setattr(module, "_load_scaffoldhub_components", raise_missing_dependency)
 
     with pytest.raises(ImportError, match=r"rl-rock\[mcp\]"):
-        module.McpEnv()
+        module.McpEnv(servers={"slack": slack_server_config()})
 
 
 def test_mcp_env_resolves_server_env_placeholders_without_starting_runtime(monkeypatch):
@@ -296,24 +310,9 @@ def test_mcp_env_resolution_keeps_placeholders_when_auth_is_unavailable(monkeypa
     }
 
 
-def test_mcp_env_init_with_no_servers_allows_empty_data_but_not_urls_before_start(monkeypatch):
-    mcp_env = reload_mcp_env(monkeypatch)
-    env = mcp_env.McpEnv()
-
-    env.init({})
-
-    assert env.dump() == {}
-    with pytest.raises(RuntimeError, match="McpEnv has not been started"):
-        env.get_urls()
-
-    asyncio.run(env.release())
-
-    assert env.is_alive() is False
-
-
 def test_mcp_env_init_requires_dict(monkeypatch):
     mcp_env = reload_mcp_env(monkeypatch)
-    env = mcp_env.McpEnv()
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
     with pytest.raises(TypeError, match="data must be a dict"):
         env.init([])
