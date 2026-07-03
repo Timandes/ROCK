@@ -1,38 +1,36 @@
-# McpEnv Runtime Options Design
+# McpEnv Runtime Options 设计
 
-## Purpose
+## 目的
 
-`McpEnv` currently constructs `RockRuntime()` with fixed runtime behavior.
-`RockRuntime` already has timeout-related constructor parameters for MCP server
-health checks, but `McpEnv` does not expose them. Users need a stable way to
-adjust these runtime health-check settings when creating an MCP environment
-without expanding `McpEnv.__init__` into a long list of low-level parameters.
+`McpEnv` 当前会固定构造 `RockRuntime()`，用户无法通过 `McpEnv`
+调整 runtime 行为。`RockRuntime` 已经有 MCP server 健康检查相关的超时构造参数，
+但这些参数没有暴露到 `McpEnv`。
 
-This change introduces a small options object for `RockRuntime` settings and
-lets `McpEnv` accept it during construction.
+本设计新增一个小型 options 对象，用来承载 `RockRuntime` 的健康检查配置，
+并让 `McpEnv` 在构造时接收该对象。这样既能暴露配置能力，也避免把
+`McpEnv.__init__` 扩展成一长串低层参数。
 
-## Goals
+## 目标
 
-- Expose all existing `RockRuntime` timeout-related health-check settings
-  through one object.
-- Keep current behavior unchanged when users do not pass options.
-- Let users create `RockRuntimeOptions()`, mutate only the fields they need,
-  and pass the object to `McpEnv`.
-- Lock the options at `McpEnv` construction time so later mutations to the
-  caller-owned object do not change an existing environment.
-- Preserve direct `RockRuntime(...)` construction compatibility.
+- 通过一个对象暴露现有 `RockRuntime` 的全部健康检查超时相关参数。
+- 用户不传 options 时，保持当前默认行为不变。
+- 用户可以先创建 `RockRuntimeOptions()`，只修改自己关心的字段，再传给
+  `McpEnv`。
+- `McpEnv` 构造时锁定 options；调用方后续修改原始 options 对象，不影响已创建的
+  environment。
+- 保留直接构造 `RockRuntime(...)` 的兼容性。
 
-## Non-Goals
+## 非目标
 
-- Do not introduce a new total health-check deadline parameter.
-- Do not change the existing retry-loop semantics in `_health_check()`.
-- Do not include sandbox startup, MCP config writing, `before_launch`, or server
-  launch time in any health-check timeout setting.
-- Do not expose unrelated ROCK sandbox configuration through this object.
+- 不新增“整体健康检查截止时间”参数。
+- 不改变 `_health_check()` 当前基于 retry loop 的语义。
+- 不把 sandbox startup、MCP config 写入、`before_launch` 或 server launch 时间计入任何
+  健康检查 timeout 参数。
+- 不通过该对象暴露无关的 ROCK sandbox 配置。
 
-## Public API
+## 公共 API
 
-Add a non-frozen dataclass:
+新增一个非 frozen dataclass：
 
 ```python
 @dataclass
@@ -42,13 +40,13 @@ class RockRuntimeOptions:
     http_timeout_seconds: float = 10.0
 ```
 
-Export it from `rock.sdk.mcp`:
+从 `rock.sdk.mcp` 导出：
 
 ```python
 from rock.sdk.mcp import McpEnv, RockRuntimeOptions
 ```
 
-Usage:
+用法示例：
 
 ```python
 options = RockRuntimeOptions()
@@ -60,10 +58,10 @@ env = McpEnv(
     runtime_options=options,
 )
 
-options.health_check_retries = 1  # Does not affect env.
+options.health_check_retries = 1  # 不影响 env。
 ```
 
-`McpEnv.__init__` accepts:
+`McpEnv.__init__` 接收：
 
 ```python
 def __init__(
@@ -74,30 +72,26 @@ def __init__(
     ...
 ```
 
-When `runtime_options` is `None`, `McpEnv` uses `RockRuntimeOptions()` and
-therefore keeps current default behavior.
+当 `runtime_options` 为 `None` 时，`McpEnv` 使用 `RockRuntimeOptions()`，
+因此默认行为与当前实现一致。
 
-## Option Snapshot Semantics
+## Options 快照语义
 
-`RockRuntimeOptions` remains mutable for ergonomic caller-side setup. Once
-passed to `McpEnv`, the environment snapshots it immediately and does not hold a
-reference to the caller-owned object.
+`RockRuntimeOptions` 保持可变，方便调用方先构造对象，再按需修改字段。
+对象一旦传入 `McpEnv`，`McpEnv` 会立即创建一份快照，不持有调用方原始对象引用。
 
-This means:
+具体语义：
 
-- Mutating options before `McpEnv(...)` affects that environment.
-- Mutating the same options object after `McpEnv(...)` does not affect that
-  environment.
-- Each `McpEnv` instance owns independent runtime options.
+- 在调用 `McpEnv(...)` 之前修改 options，会影响该 environment。
+- 在调用 `McpEnv(...)` 之后继续修改同一个 options 对象，不影响该 environment。
+- 每个 `McpEnv` 实例拥有独立的 runtime options。
 
-Implementation snapshots by constructing a new `RockRuntimeOptions` from the
-input fields. The dataclass only contains scalar values, and an explicit
-field-by-field copy makes the API boundary clear.
+实现时通过读取输入对象字段并构造新的 `RockRuntimeOptions` 来创建快照。
+该 dataclass 只包含标量字段，显式逐字段复制可以让 API 边界更清楚。
 
-## RockRuntime Construction
+## RockRuntime 构造
 
-`RockRuntime` accepts an `options` object while keeping the existing flat
-parameters for compatibility:
+`RockRuntime` 接收一个 `options` 对象，同时保留现有平铺参数以兼容直接构造用法：
 
 ```python
 class RockRuntime:
@@ -113,79 +107,69 @@ class RockRuntime:
         ...
 ```
 
-Normalization rules:
+归一化规则：
 
-- Start from a snapshot of `options` if provided, otherwise
-  `RockRuntimeOptions()`.
-- If any flat parameter is provided, it overrides the corresponding option
-  field. This preserves existing direct `RockRuntime(...)` use cases and lets
-  tests continue to customize one value directly.
-- Store the final snapshot as `self.options`.
-- Keep existing runtime attributes `self.health_check_retries`,
-  `self.health_check_interval_seconds`, and `self.http_timeout_seconds` as
-  assigned aliases copied from `self.options`. This preserves direct attribute
-  access for tests or internal callers while keeping option normalization in one
-  place.
+- 如果传入 `options`，先基于它创建一份快照；否则使用 `RockRuntimeOptions()`。
+- 如果同时传入任意平铺参数，则平铺参数覆盖对应的 option 字段。
+  这样可以保留既有 `RockRuntime(...)` 直接使用方式，也方便测试继续单独覆盖某个值。
+- 将最终快照保存为 `self.options`。
+- 保留现有 runtime 属性 `self.health_check_retries`、
+  `self.health_check_interval_seconds` 和 `self.http_timeout_seconds`，这些属性从
+  `self.options` 复制赋值。这样既保留测试或内部调用方可能依赖的直接属性访问，
+  又把 options 归一化集中在一个地方。
 
-`McpEnv` should construct:
+`McpEnv` 构造 runtime 时使用：
 
 ```python
 self._rock_runtime = RockRuntime(options=runtime_options_snapshot)
 ```
 
-## Validation
+## 校验
 
-Validate normalized runtime options during `RockRuntime` construction:
+在 `RockRuntime` 构造期间校验归一化后的 runtime options：
 
-- `health_check_retries` must be an integer greater than or equal to `1`.
-- `health_check_interval_seconds` must be a number greater than `0`.
-- `http_timeout_seconds` must be a number greater than `0`.
+- `health_check_retries` 必须是大于等于 `1` 的整数。
+- `health_check_interval_seconds` 必须是大于 `0` 的数字。
+- `http_timeout_seconds` 必须是大于 `0` 的数字。
 
-Invalid values raise `RockRuntimeConfigError` with a field-specific message,
-for example:
+非法值抛出 `RockRuntimeConfigError`，错误信息应包含具体字段，例如：
 
 - `health_check_retries must be >= 1`
 - `health_check_interval_seconds must be > 0`
 - `http_timeout_seconds must be > 0`
 
-Validation happens before sandbox startup. `McpEnv(...)` will fail fast because
-it constructs `RockRuntime` during initialization.
+校验发生在 sandbox 启动之前。因为 `McpEnv(...)` 会在初始化阶段构造
+`RockRuntime`，所以非法 options 会快速失败。
 
-## Data Flow
+## 数据流
 
-1. Caller creates and optionally mutates `RockRuntimeOptions`.
-2. Caller passes it to `McpEnv`.
-3. `McpEnv` snapshots the options and constructs `RockRuntime(options=...)`.
-4. `McpEnv.start()` resolves server configuration as it does today.
-5. `RockRuntime.start()` launches the sandbox and eventually calls
-   `_health_check()`.
-6. `_health_check()` reads the normalized option values for retry count,
-   interval, and per-request HTTP timeout.
+1. 调用方创建并按需修改 `RockRuntimeOptions`。
+2. 调用方将 options 传给 `McpEnv`。
+3. `McpEnv` 创建 options 快照，并构造 `RockRuntime(options=...)`。
+4. `McpEnv.start()` 按现有逻辑解析 server 配置。
+5. `RockRuntime.start()` 启动 sandbox，并最终调用 `_health_check()`。
+6. `_health_check()` 读取归一化后的 retry 次数、间隔和单次 HTTP 请求 timeout。
 
-No lifecycle, auth, server-config resolution, sandbox injection, or release
-behavior changes.
+生命周期、auth、server config 解析、sandbox 注入和 release 行为均不改变。
 
-## Testing
+## 测试
 
-Add unit coverage for:
+新增单元测试覆盖：
 
-- `RockRuntimeOptions()` exposes current defaults.
-- `McpEnv(runtime_options=...)` passes option values into its `RockRuntime`.
-- Mutating the original options after `McpEnv(...)` does not affect
-  `env._rock_runtime.options`.
-- `RockRuntime(options=..., health_check_retries=...)` applies flat parameter
-  overrides for direct-construction compatibility.
-- Invalid option values raise `RockRuntimeConfigError`.
-- Existing `McpEnv(servers=...)` and `RockRuntime(...)` tests still pass without
-  API changes.
+- `RockRuntimeOptions()` 暴露当前默认值。
+- `McpEnv(runtime_options=...)` 将 option 值传入其 `RockRuntime`。
+- `McpEnv(...)` 之后修改原始 options，不影响 `env._rock_runtime.options`。
+- `RockRuntime(options=..., health_check_retries=...)` 会应用平铺参数覆盖，
+  保持直接构造兼容性。
+- 非法 option 值抛出 `RockRuntimeConfigError`。
+- 现有 `McpEnv(servers=...)` 和 `RockRuntime(...)` 测试无需 API 调整即可继续通过。
 
-Integration tests do not need to exercise non-default timing because this is
-configuration plumbing and runtime validation. Existing real ROCK MCP
-integration coverage is sufficient for default behavior.
+集成测试不需要覆盖非默认 timing。该改动主要是配置传递和 runtime 校验；
+现有真实 ROCK MCP 集成测试足以覆盖默认行为。
 
-## Documentation
+## 文档
 
-Update MCP SDK documentation with a small example showing:
+更新 MCP SDK 文档，增加一个简短示例：
 
 ```python
 options = RockRuntimeOptions()
@@ -193,4 +177,4 @@ options.health_check_retries = 12
 env = McpEnv(servers=servers, runtime_options=options)
 ```
 
-Mention that options are snapshotted when passed to `McpEnv`.
+文档中需要说明：options 传入 `McpEnv` 时会被快照锁定。
