@@ -96,10 +96,7 @@ def _snapshot_runtime_options(options: RockRuntimeOptions | None) -> RockRuntime
 def _validate_runtime_options(options: RockRuntimeOptions) -> None:
     if not isinstance(options.health_check_retries, int) or options.health_check_retries < 1:
         raise RockRuntimeConfigError("health_check_retries must be >= 1")
-    if (
-        not isinstance(options.health_check_interval_seconds, int | float)
-        or options.health_check_interval_seconds <= 0
-    ):
+    if not isinstance(options.health_check_interval_seconds, int | float) or options.health_check_interval_seconds <= 0:
         raise RockRuntimeConfigError("health_check_interval_seconds must be > 0")
     if not isinstance(options.http_timeout_seconds, int | float) or options.http_timeout_seconds <= 0:
         raise RockRuntimeConfigError("http_timeout_seconds must be > 0")
