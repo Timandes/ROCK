@@ -21,6 +21,37 @@ class FailingStopRuntime:
         raise RuntimeError("stop failed")
 
 
+class RecordingStartRuntime:
+    def __init__(self, sandbox=None):
+        self.sandbox = sandbox or object()
+        self.started_servers = None
+        self.received_before_launch = None
+        self.stop_calls = 0
+
+    async def start(self, servers, before_launch=None):
+        self.started_servers = deepcopy(servers)
+        self.received_before_launch = before_launch
+        if before_launch is not None:
+            await before_launch(self.sandbox)
+        return {name: f"https://example.test/{name}/sse" for name in sorted(servers)}
+
+    async def stop(self):
+        self.stop_calls += 1
+
+
+class CleanupRecordingStartRuntime(RecordingStartRuntime):
+    async def start(self, servers, before_launch=None):
+        self.started_servers = deepcopy(servers)
+        self.received_before_launch = before_launch
+        try:
+            if before_launch is not None:
+                await before_launch(self.sandbox)
+        except Exception:
+            await self.stop()
+            raise
+        return {name: f"https://example.test/{name}/sse" for name in sorted(servers)}
+
+
 class RecordingDataLifecycle:
     def __init__(self):
         self.initialized_data = {}
@@ -491,6 +522,88 @@ def test_mcp_env_start_accepts_before_launch_hook(monkeypatch):
 
     assert "before_launch" in signature.parameters
     assert signature.parameters["before_launch"].default is None
+
+
+def test_mcp_env_start_injects_sandbox_into_sandbox_aware_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingSandboxAwareLifecycle()
+    sandbox = object()
+    runtime = RecordingStartRuntime(sandbox=sandbox)
+    env.data_lifecycles["slack"] = lifecycle
+    env._rock_runtime = runtime
+
+    asyncio.run(env.start())
+
+    assert lifecycle.sandbox is sandbox
+    assert lifecycle.events == ["set_sandbox"]
+    assert env.is_alive() is True
+    assert env.get_urls() == {"slack": "https://example.test/slack/sse"}
+
+
+def test_mcp_env_start_runs_user_before_launch_after_sandbox_injection(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingSandboxAwareLifecycle()
+    sandbox = object()
+    events: list[str] = []
+    runtime = RecordingStartRuntime(sandbox=sandbox)
+    env.data_lifecycles["slack"] = lifecycle
+    env._rock_runtime = runtime
+
+    async def before_launch(received_sandbox):
+        events.extend(lifecycle.events)
+        events.append("user_before_launch")
+        assert received_sandbox is sandbox
+        assert lifecycle.sandbox is sandbox
+
+    asyncio.run(env.start(before_launch=before_launch))
+
+    assert events == ["set_sandbox", "user_before_launch"]
+
+
+def test_mcp_env_start_ignores_non_sandbox_aware_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingDataLifecycle()
+    runtime = RecordingStartRuntime()
+    env.data_lifecycles["slack"] = lifecycle
+    env._rock_runtime = runtime
+
+    asyncio.run(env.start())
+
+    assert not hasattr(lifecycle, "sandbox")
+    assert env.is_alive() is True
+
+
+def test_mcp_env_start_skips_injection_when_sandbox_aware_is_unavailable(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch, include_sandbox_aware=False)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingSandboxAwareLifecycle()
+    runtime = RecordingStartRuntime()
+    env.data_lifecycles["slack"] = lifecycle
+    env._rock_runtime = runtime
+
+    asyncio.run(env.start())
+
+    assert lifecycle.sandbox is None
+    assert lifecycle.events == []
+    assert env.is_alive() is True
+
+
+def test_mcp_env_start_propagates_sandbox_injection_failure_and_runtime_cleans_up(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    runtime = CleanupRecordingStartRuntime()
+    env.data_lifecycles["slack"] = FailingSandboxAwareLifecycle()
+    env._rock_runtime = runtime
+
+    with pytest.raises(RuntimeError, match="sandbox injection failed"):
+        asyncio.run(env.start())
+
+    assert runtime.stop_calls == 1
+    assert env.is_alive() is False
+    assert env.urls == {}
 
 
 def test_mcp_env_exposes_raw_sandbox_property(monkeypatch):
