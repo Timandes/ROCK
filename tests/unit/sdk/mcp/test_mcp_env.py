@@ -37,6 +37,27 @@ class RecordingDataLifecycle:
         self.initialized_data = {}
 
 
+class FakeSandboxAware:
+    def set_sandbox(self, sandbox) -> None:
+        self.sandbox = sandbox
+
+
+class RecordingSandboxAwareLifecycle(RecordingDataLifecycle, FakeSandboxAware):
+    def __init__(self):
+        super().__init__()
+        self.sandbox = None
+        self.events: list[str] = []
+
+    def set_sandbox(self, sandbox) -> None:
+        self.events.append("set_sandbox")
+        self.sandbox = sandbox
+
+
+class FailingSandboxAwareLifecycle(RecordingDataLifecycle, FakeSandboxAware):
+    def set_sandbox(self, sandbox) -> None:
+        raise RuntimeError("sandbox injection failed")
+
+
 class FakeAuthProvider:
     def __init__(self):
         self.auth = {
@@ -81,13 +102,15 @@ class FailingReleaseAuthProvider(FakeAuthProvider):
         raise RuntimeError("database release failed")
 
 
-def install_fake_scaffoldhub(monkeypatch):
+def install_fake_scaffoldhub(monkeypatch, *, include_sandbox_aware: bool = True):
     scaffoldhub = ModuleType("scaffoldhub")
     auth = ModuleType("scaffoldhub.auth")
     tools = ModuleType("scaffoldhub.tools")
     base = ModuleType("scaffoldhub.tools.base")
     auth.AuthProvider = FakeAuthProvider
     base.DataLifecycleFactory = FakeDataLifecycleFactory
+    if include_sandbox_aware:
+        base.SandboxAware = FakeSandboxAware
 
     monkeypatch.setitem(sys.modules, "scaffoldhub", scaffoldhub)
     monkeypatch.setitem(sys.modules, "scaffoldhub.auth", auth)
@@ -95,8 +118,8 @@ def install_fake_scaffoldhub(monkeypatch):
     monkeypatch.setitem(sys.modules, "scaffoldhub.tools.base", base)
 
 
-def reload_mcp_env(monkeypatch):
-    install_fake_scaffoldhub(monkeypatch)
+def reload_mcp_env(monkeypatch, *, include_sandbox_aware: bool = True):
+    install_fake_scaffoldhub(monkeypatch, include_sandbox_aware=include_sandbox_aware)
     sys.modules.pop("rock.sdk.mcp.mcp_env", None)
     module = importlib.import_module("rock.sdk.mcp.mcp_env")
     return importlib.reload(module)
