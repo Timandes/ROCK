@@ -49,6 +49,73 @@ def test_rock_runtime_config_reads_defaults_and_numeric_values(monkeypatch):
     assert config.auto_clear_seconds == 3600
 
 
+def test_rock_runtime_options_exposes_current_defaults():
+    options = rock_runtime.RockRuntimeOptions()
+
+    assert options.health_check_retries == 10
+    assert options.health_check_interval_seconds == 10.0
+    assert options.http_timeout_seconds == 10.0
+
+
+def test_rock_runtime_snapshots_options_at_construction():
+    options = rock_runtime.RockRuntimeOptions(
+        health_check_retries=12,
+        health_check_interval_seconds=5.0,
+        http_timeout_seconds=2.5,
+    )
+
+    runtime = RockRuntime(options=options)
+    options.health_check_retries = 1
+    options.health_check_interval_seconds = 1.0
+    options.http_timeout_seconds = 1.0
+
+    assert runtime.options == rock_runtime.RockRuntimeOptions(
+        health_check_retries=12,
+        health_check_interval_seconds=5.0,
+        http_timeout_seconds=2.5,
+    )
+    assert runtime.health_check_retries == 12
+    assert runtime.health_check_interval_seconds == 5.0
+    assert runtime.http_timeout_seconds == 2.5
+
+
+def test_rock_runtime_flat_parameters_override_options():
+    runtime = RockRuntime(
+        options=rock_runtime.RockRuntimeOptions(
+            health_check_retries=12,
+            health_check_interval_seconds=5.0,
+            http_timeout_seconds=2.5,
+        ),
+        health_check_retries=3,
+        http_timeout_seconds=1.5,
+    )
+
+    assert runtime.options == rock_runtime.RockRuntimeOptions(
+        health_check_retries=3,
+        health_check_interval_seconds=5.0,
+        http_timeout_seconds=1.5,
+    )
+    assert runtime.health_check_retries == 3
+    assert runtime.health_check_interval_seconds == 5.0
+    assert runtime.http_timeout_seconds == 1.5
+
+
+@pytest.mark.parametrize(
+    ("options_kwargs", "message"),
+    [
+        ({"health_check_retries": 0}, "health_check_retries must be >= 1"),
+        ({"health_check_retries": 1.5}, "health_check_retries must be >= 1"),
+        ({"health_check_interval_seconds": 0}, "health_check_interval_seconds must be > 0"),
+        ({"http_timeout_seconds": 0}, "http_timeout_seconds must be > 0"),
+    ],
+)
+def test_rock_runtime_rejects_invalid_options(options_kwargs, message):
+    options = rock_runtime.RockRuntimeOptions(**options_kwargs)
+
+    with pytest.raises(RockRuntimeConfigError, match=message):
+        RockRuntime(options=options)
+
+
 def test_rock_runtime_builds_server_urls_from_sandbox_id(monkeypatch):
     monkeypatch.setenv("ROCK_API_KEY", "rock-key")
     monkeypatch.setenv("ROCK_USER_ID", "user-001")

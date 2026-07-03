@@ -76,19 +76,59 @@ class RockRuntimeConfig:
         )
 
 
+@dataclass
+class RockRuntimeOptions:
+    health_check_retries: int = 10
+    health_check_interval_seconds: float = 10.0
+    http_timeout_seconds: float = 10.0
+
+
+def _snapshot_runtime_options(options: RockRuntimeOptions | None) -> RockRuntimeOptions:
+    if options is None:
+        return RockRuntimeOptions()
+    return RockRuntimeOptions(
+        health_check_retries=options.health_check_retries,
+        health_check_interval_seconds=options.health_check_interval_seconds,
+        http_timeout_seconds=options.http_timeout_seconds,
+    )
+
+
+def _validate_runtime_options(options: RockRuntimeOptions) -> None:
+    if not isinstance(options.health_check_retries, int) or options.health_check_retries < 1:
+        raise RockRuntimeConfigError("health_check_retries must be >= 1")
+    if (
+        not isinstance(options.health_check_interval_seconds, int | float)
+        or options.health_check_interval_seconds <= 0
+    ):
+        raise RockRuntimeConfigError("health_check_interval_seconds must be > 0")
+    if not isinstance(options.http_timeout_seconds, int | float) or options.http_timeout_seconds <= 0:
+        raise RockRuntimeConfigError("http_timeout_seconds must be > 0")
+
+
 class RockRuntime:
     def __init__(
         self,
         config: RockRuntimeConfig | None = None,
         *,
-        health_check_retries: int = 10,
-        health_check_interval_seconds: float = 10.0,
-        http_timeout_seconds: float = 10.0,
+        options: RockRuntimeOptions | None = None,
+        health_check_retries: int | None = None,
+        health_check_interval_seconds: float | None = None,
+        http_timeout_seconds: float | None = None,
     ):
+        runtime_options = _snapshot_runtime_options(options)
+        if health_check_retries is not None:
+            runtime_options.health_check_retries = health_check_retries
+        if health_check_interval_seconds is not None:
+            runtime_options.health_check_interval_seconds = health_check_interval_seconds
+        if http_timeout_seconds is not None:
+            runtime_options.http_timeout_seconds = http_timeout_seconds
+        _validate_runtime_options(runtime_options)
+
         self.config = config
-        self.health_check_retries = health_check_retries
-        self.health_check_interval_seconds = health_check_interval_seconds
-        self.http_timeout_seconds = http_timeout_seconds
+        self.options = runtime_options
+        self.health_check_retries = runtime_options.health_check_retries
+        self.health_check_interval_seconds = runtime_options.health_check_interval_seconds
+        self.http_timeout_seconds = runtime_options.http_timeout_seconds
         self._sandbox: Sandbox | None = None
         self._sandbox_id: str | None = None
         self._started = False
