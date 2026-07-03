@@ -23,7 +23,7 @@ ScaffoldHub package is Python 3.11+ and ROCK officially supports Python 3.10 to
 ```python
 import asyncio
 
-from rock.sdk.mcp import McpEnv
+from rock.sdk.mcp import McpEnv, RockRuntimeOptions
 
 
 async def main():
@@ -46,6 +46,32 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Runtime Options
+
+`McpEnv` accepts `RockRuntimeOptions` for ROCK runtime health-check settings.
+Create the object, adjust only the fields you need, and pass it to `McpEnv`:
+
+```python
+options = RockRuntimeOptions()
+options.health_check_retries = 12
+options.health_check_interval_seconds = 5.0
+options.http_timeout_seconds = 2.5
+
+env = McpEnv(
+    servers={
+        "calculator": {
+            "command": "uvx",
+            "args": ["mcp-server-calculator==0.2.0"],
+        }
+    },
+    runtime_options=options,
+)
+```
+
+`McpEnv` snapshots these values during construction. Mutating the same
+`RockRuntimeOptions` object after creating `McpEnv` does not change that
+environment.
 
 `release()` is the cleanup boundary for both ROCK runtime resources and
 ScaffoldHub auth leases. Keep it in a `finally` block and call it even if
