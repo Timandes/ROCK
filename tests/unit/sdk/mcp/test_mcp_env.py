@@ -68,6 +68,24 @@ class RecordingDataLifecycle:
         self.initialized_data = {}
 
 
+class AsyncRecordingDataLifecycle:
+    """Async counterpart of RecordingDataLifecycle for testing isawaitable() branches."""
+
+    def __init__(self):
+        self.initialized_data = {}
+        self.reset_calls = 0
+
+    async def init(self, data: dict) -> None:
+        self.initialized_data = deepcopy(data)
+
+    async def dump(self) -> dict:
+        return deepcopy(self.initialized_data)
+
+    async def reset(self) -> None:
+        self.reset_calls += 1
+        self.initialized_data = {}
+
+
 class FakeSandboxAware:
     def set_sandbox(self, sandbox) -> None:
         self.sandbox = sandbox
@@ -640,3 +658,64 @@ def test_mcp_env_uses_default_runtime_options_when_not_provided(monkeypatch):
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
     assert env._rock_runtime.options == mcp_env.RockRuntimeOptions()
+
+
+def test_mcp_env_init_awaits_async_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = AsyncRecordingDataLifecycle()
+    env.data_lifecycles["slack"] = lifecycle
+    data = {"slack": {"channels": ["general"]}}
+
+    asyncio.run(env.init(data))
+
+    assert lifecycle.initialized_data == data["slack"]
+    assert asyncio.run(env.dump()) == {"slack": {"channels": ["general"]}}
+
+
+def test_mcp_env_dump_awaits_async_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = AsyncRecordingDataLifecycle()
+    lifecycle.initialized_data = {"channels": ["random"]}
+    env.data_lifecycles["slack"] = lifecycle
+
+    result = asyncio.run(env.dump())
+
+    assert result == {"slack": {"channels": ["random"]}}
+
+
+def test_mcp_env_reset_awaits_async_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = AsyncRecordingDataLifecycle()
+    lifecycle.initialized_data = {"channels": ["general"]}
+    env.data_lifecycles["slack"] = lifecycle
+
+    asyncio.run(env.reset())
+
+    assert lifecycle.reset_calls == 1
+    assert lifecycle.initialized_data == {}
+    assert asyncio.run(env.dump()) == {}
+
+
+def test_mcp_env_supports_mixed_sync_and_async_lifecycles(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config(), "github": slack_server_config()})
+    sync_lifecycle = RecordingDataLifecycle()
+    async_lifecycle = AsyncRecordingDataLifecycle()
+    env.data_lifecycles["slack"] = sync_lifecycle
+    env.data_lifecycles["github"] = async_lifecycle
+
+    asyncio.run(env.init({"slack": {"key": "sync"}, "github": {"key": "async"}}))
+
+    assert sync_lifecycle.initialized_data == {"key": "sync"}
+    assert async_lifecycle.initialized_data == {"key": "async"}
+    dumped = asyncio.run(env.dump())
+    assert dumped == {"slack": {"key": "sync"}, "github": {"key": "async"}}
+
+    asyncio.run(env.reset())
+
+    assert sync_lifecycle.reset_calls == 1
+    assert async_lifecycle.reset_calls == 1
+    assert asyncio.run(env.dump()) == {}

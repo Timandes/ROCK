@@ -121,7 +121,7 @@ class McpEnv:
         """
         return self.running
 
-    async def init(self, data: dict):
+    async def init(self, data: dict) -> None:
         """
         Initialize MCP environment data.
 
@@ -186,7 +186,7 @@ class McpEnv:
                 dumped_data[lifecycle_type] = lifecycle_data
         return dumped_data
 
-    async def release(self):
+    async def release(self) -> None:
         """
         Release the physical MCP runtime and any active ScaffoldHub auth leases.
 
