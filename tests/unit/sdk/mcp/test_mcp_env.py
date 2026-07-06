@@ -192,18 +192,18 @@ def test_mcp_env_init_dump_and_release_with_declared_server(monkeypatch):
     expected_data = deepcopy(data)
 
     assert "slack" in env.data_lifecycles
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
 
-    env.init(data)
+    asyncio.run(env.init(data))
 
-    dumped_data = env.dump()
+    dumped_data = asyncio.run(env.dump())
 
     assert dumped_data == expected_data
     assert not hasattr(env, "data")
 
     dumped_data["slack"]["channels"].append("alerts")
 
-    assert env.dump() == expected_data
+    assert asyncio.run(env.dump()) == expected_data
     assert data == expected_data
 
     asyncio.run(env.release())
@@ -315,25 +315,25 @@ def test_mcp_env_init_requires_dict(monkeypatch):
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
     with pytest.raises(TypeError, match="data must be a dict"):
-        env.init([])
+        asyncio.run(env.init([]))
 
 
 def test_mcp_env_init_ignores_data_keys_missing_from_servers(monkeypatch):
     mcp_env = reload_mcp_env(monkeypatch)
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
-    env.init({"github": {"repositories": ["example"]}})
+    asyncio.run(env.init({"github": {"repositories": ["example"]}}))
 
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
 
 
-def test_mcp_env_init_ignores_server_keys_missing_from_data(monkeypatch):
+def test_mcp_env_init_ignores_server_keys_missing_in_data(monkeypatch):
     mcp_env = reload_mcp_env(monkeypatch)
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
-    env.init({})
+    asyncio.run(env.init({}))
 
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
 
 
 def test_mcp_env_init_rejects_non_dict_values_only_for_intersection_keys(monkeypatch):
@@ -341,13 +341,13 @@ def test_mcp_env_init_rejects_non_dict_values_only_for_intersection_keys(monkeyp
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
     with pytest.raises(TypeError, match="data for slack must be a dict"):
-        env.init({"slack": []})
+        asyncio.run(env.init({"slack": []}))
 
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
-    env.init({"github": []})
+    asyncio.run(env.init({"github": []}))
 
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
 
 
 def test_mcp_env_reset_delegates_to_configured_lifecycles_without_stopping_runtime(monkeypatch):
@@ -358,12 +358,12 @@ def test_mcp_env_reset_delegates_to_configured_lifecycles_without_stopping_runti
     env.running = True
     env.urls = {"slack": "https://example.test/slack/sse"}
     env.resolved_servers = {"slack": slack_server_config()}
-    env.init({"slack": {"channels": ["general"]}})
+    asyncio.run(env.init({"slack": {"channels": ["general"]}}))
 
-    env.reset()
+    asyncio.run(env.reset())
 
     assert lifecycle.reset_calls == 1
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
     assert env.is_alive() is True
     assert env.urls == {"slack": "https://example.test/slack/sse"}
     assert env.resolved_servers == {"slack": slack_server_config()}
@@ -375,17 +375,17 @@ def test_mcp_env_reset_does_not_require_prior_init(monkeypatch):
     lifecycle = RecordingDataLifecycle()
     env.data_lifecycles["slack"] = lifecycle
 
-    env.reset()
+    asyncio.run(env.reset())
 
     assert lifecycle.reset_calls == 1
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
 
 
 def test_mcp_env_dump_before_init_returns_empty_data(monkeypatch):
     mcp_env = reload_mcp_env(monkeypatch)
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
-    assert env.dump() == {}
+    assert asyncio.run(env.dump()) == {}
 
 
 def test_mcp_env_get_urls_requires_started_runtime_not_data_init(monkeypatch):
@@ -425,7 +425,7 @@ def test_mcp_env_release_after_start_before_init_stops_runtime_and_preserves_lif
     assert env.is_alive() is False
     assert env.urls == {}
     assert env.resolved_servers == {}
-    env.reset()
+    asyncio.run(env.reset())
     assert lifecycle.reset_calls == 1
 
 
@@ -444,7 +444,7 @@ def test_mcp_env_release_preserves_lifecycles_when_runtime_stop_fails(monkeypatc
     assert env.is_alive() is False
     assert env.urls == {}
     assert env.resolved_servers == {}
-    env.reset()
+    asyncio.run(env.reset())
     assert lifecycle.reset_calls == 1
 
 
