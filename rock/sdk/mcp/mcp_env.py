@@ -209,12 +209,20 @@ class McpEnv:
     def _compose_before_launch(self, before_launch: BeforeLaunchHook | None) -> BeforeLaunchHook:
         async def composed_before_launch(sandbox: Sandbox) -> None:
             self._inject_sandbox_into_lifecycles(sandbox)
-            if before_launch is None:
-                return
 
-            result = before_launch(sandbox)
-            if inspect.isawaitable(result):
-                await result
+            # 自动调用所有 lifecycle 的 before_launch 方法
+            for lifecycle in self.data_lifecycles.values():
+                hook = getattr(lifecycle, "before_launch", None)
+                if callable(hook):
+                    result = hook(sandbox)
+                    if inspect.isawaitable(result):
+                        await result
+
+            # 再执行用户传入的 before_launch hook
+            if before_launch is not None:
+                result = before_launch(sandbox)
+                if inspect.isawaitable(result):
+                    await result
 
         return composed_before_launch
 
