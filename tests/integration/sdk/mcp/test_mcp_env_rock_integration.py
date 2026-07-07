@@ -33,7 +33,7 @@ async def run_real_rock_calculator_server_case():
         await env.start()
         assert env.is_alive() is True
 
-        env.init({})
+        await env.init({})
         urls = env.get_urls()
 
         assert set(urls) == {"calculator"}
@@ -66,7 +66,7 @@ async def run_real_rock_async_before_launch_case():
 
     try:
         await env.start(before_launch=before_launch)
-        env.init({})
+        await env.init({})
 
         assert env.is_alive() is True
         assert env.sandbox is not None
@@ -94,7 +94,7 @@ async def run_real_rock_sync_before_launch_case():
 
     try:
         await env.start(before_launch=before_launch)
-        env.init({})
+        await env.init({})
 
         assert env.is_alive() is True
         assert env.sandbox is not None

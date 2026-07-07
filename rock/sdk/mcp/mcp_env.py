@@ -121,7 +121,7 @@ class McpEnv:
         """
         return self.running
 
-    def init(self, data: dict):
+    async def init(self, data: dict) -> None:
         """
         Initialize MCP environment data.
 
@@ -139,9 +139,11 @@ class McpEnv:
             lifecycle_data = data[lifecycle_type]
             if not isinstance(lifecycle_data, dict):
                 raise TypeError(f"data for {lifecycle_type} must be a dict")
-            self.data_lifecycles[lifecycle_type].init(lifecycle_data)
+            result = self.data_lifecycles[lifecycle_type].init(lifecycle_data)
+            if inspect.isawaitable(result):
+                await result
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """
         Reset configured MCP environment data.
 
@@ -149,7 +151,9 @@ class McpEnv:
         ROCK runtime, clear URLs, or change the recorded running state.
         """
         for lifecycle in self.data_lifecycles.values():
-            lifecycle.reset()
+            result = lifecycle.reset()
+            if inspect.isawaitable(result):
+                await result
 
     def get_urls(self) -> dict:
         """
@@ -166,7 +170,7 @@ class McpEnv:
 
         return deepcopy(self.urls)
 
-    def dump(self) -> dict:
+    async def dump(self) -> dict:
         """
         Export current MCP environment data.
 
@@ -176,11 +180,13 @@ class McpEnv:
         dumped_data = {}
         for lifecycle_type, lifecycle in self.data_lifecycles.items():
             lifecycle_data = lifecycle.dump()
+            if inspect.isawaitable(lifecycle_data):
+                lifecycle_data = await lifecycle_data
             if lifecycle_data != {}:
                 dumped_data[lifecycle_type] = lifecycle_data
         return dumped_data
 
-    async def release(self):
+    async def release(self) -> None:
         """
         Release the physical MCP runtime and any active ScaffoldHub auth leases.
 
