@@ -4515,7 +4515,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.10.0.dev20"
+version = "1.10.0.dev2026070901"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },

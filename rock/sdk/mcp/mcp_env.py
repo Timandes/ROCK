@@ -146,7 +146,7 @@ class McpEnv:
             result = self.data_lifecycles[lifecycle_type].init(lifecycle_data)
             if inspect.isawaitable(result):
                 result = await result
-            if result is not None and result != {}:
+            if result is not None:
                 init_results[lifecycle_type] = result
         return init_results
 
