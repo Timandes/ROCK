@@ -104,6 +104,12 @@ class DeferredInitResultLifecycle(RecordingDataLifecycle):
         return {"initialized": False, "result": {}}
 
 
+class EmptyInitResultLifecycle(RecordingDataLifecycle):
+    def init(self, data: dict) -> dict:
+        super().init(data)
+        return {}
+
+
 class FakeSandboxAware:
     def set_sandbox(self, sandbox) -> None:
         self.sandbox = sandbox
@@ -713,6 +719,16 @@ def test_mcp_env_init_keeps_deferred_init_result(monkeypatch):
     result = asyncio.run(env.init({"slack": {"reset": []}}))
 
     assert result == {"slack": {"initialized": False, "result": {}}}
+
+
+def test_mcp_env_init_keeps_empty_lifecycle_result(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.data_lifecycles["slack"] = EmptyInitResultLifecycle()
+
+    result = asyncio.run(env.init({"slack": {"reset": []}}))
+
+    assert result == {"slack": {}}
 
 
 def test_mcp_env_dump_awaits_async_lifecycle(monkeypatch):
