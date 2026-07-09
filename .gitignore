@@ -2,6 +2,7 @@
 .venv/
 .idea/
 .claude/*
+.qoder/*
 !.claude/skills/
 .worktrees/
 .pytest_cache/

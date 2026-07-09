@@ -170,16 +170,22 @@ class McpEnv:
 
         return deepcopy(self.urls)
 
-    async def dump(self) -> dict:
+    async def dump(self, query: dict | None = None) -> dict:
         """
         Export current MCP environment data.
+
+        Args:
+            query: Optional per-lifecycle query dict, keyed by lifecycle type.
+                For example ``{"woocommerce": {"type": "products", "fields": "id,name"}}``
+                triggers a live API read instead of a local snapshot.
 
         Returns:
             Layered data returned by configured data lifecycles.
         """
         dumped_data = {}
         for lifecycle_type, lifecycle in self.data_lifecycles.items():
-            lifecycle_data = lifecycle.dump()
+            lifecycle_query = (query or {}).get(lifecycle_type)
+            lifecycle_data = lifecycle.dump(lifecycle_query)
             if inspect.isawaitable(lifecycle_data):
                 lifecycle_data = await lifecycle_data
             if lifecycle_data != {}:

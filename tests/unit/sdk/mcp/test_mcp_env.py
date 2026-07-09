@@ -56,11 +56,13 @@ class RecordingDataLifecycle:
     def __init__(self):
         self.initialized_data = {}
         self.reset_calls = 0
+        self.dump_queries: list = []
 
     def init(self, data: dict) -> None:
         self.initialized_data = deepcopy(data)
 
-    def dump(self) -> dict:
+    def dump(self, query=None) -> dict:
+        self.dump_queries.append(query)
         return deepcopy(self.initialized_data)
 
     def reset(self) -> None:
@@ -74,11 +76,13 @@ class AsyncRecordingDataLifecycle:
     def __init__(self):
         self.initialized_data = {}
         self.reset_calls = 0
+        self.dump_queries: list = []
 
     async def init(self, data: dict) -> None:
         self.initialized_data = deepcopy(data)
 
-    async def dump(self) -> dict:
+    async def dump(self, query=None) -> dict:
+        self.dump_queries.append(query)
         return deepcopy(self.initialized_data)
 
     async def reset(self) -> None:
@@ -719,3 +723,62 @@ def test_mcp_env_supports_mixed_sync_and_async_lifecycles(monkeypatch):
     assert sync_lifecycle.reset_calls == 1
     assert async_lifecycle.reset_calls == 1
     assert asyncio.run(env.dump()) == {}
+
+
+def test_mcp_env_dump_without_query_passes_none_to_lifecycles(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingDataLifecycle()
+    lifecycle.initialized_data = {"channels": ["general"]}
+    env.data_lifecycles["slack"] = lifecycle
+
+    result = asyncio.run(env.dump())
+
+    assert result == {"slack": {"channels": ["general"]}}
+    assert lifecycle.dump_queries == [None]
+
+
+def test_mcp_env_dump_with_query_passes_per_lifecycle_query(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config(), "github": slack_server_config()})
+    slack_lifecycle = RecordingDataLifecycle()
+    slack_lifecycle.initialized_data = {"channels": ["general"]}
+    github_lifecycle = RecordingDataLifecycle()
+    github_lifecycle.initialized_data = {"repos": ["example"]}
+    env.data_lifecycles["slack"] = slack_lifecycle
+    env.data_lifecycles["github"] = github_lifecycle
+
+    query = {"slack": {"type": "channels", "fields": "id,name"}}
+    result = asyncio.run(env.dump(query=query))
+
+    assert result == {
+        "slack": {"channels": ["general"]},
+        "github": {"repos": ["example"]},
+    }
+    assert slack_lifecycle.dump_queries == [{"type": "channels", "fields": "id,name"}]
+    assert github_lifecycle.dump_queries == [None]
+
+
+def test_mcp_env_dump_with_query_ignores_unknown_lifecycle_keys(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingDataLifecycle()
+    lifecycle.initialized_data = {"channels": ["general"]}
+    env.data_lifecycles["slack"] = lifecycle
+
+    result = asyncio.run(env.dump(query={"woocommerce": {"type": "products"}}))
+
+    assert result == {"slack": {"channels": ["general"]}}
+    assert lifecycle.dump_queries == [None]
+
+
+def test_mcp_env_dump_with_empty_query_dict_passes_none(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingDataLifecycle()
+    lifecycle.initialized_data = {"channels": ["general"]}
+    env.data_lifecycles["slack"] = lifecycle
+
+    asyncio.run(env.dump(query={}))
+
+    assert lifecycle.dump_queries == [None]
