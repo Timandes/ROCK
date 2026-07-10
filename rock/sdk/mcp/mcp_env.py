@@ -211,18 +211,30 @@ class McpEnv:
         return dumped_data
 
     async def release(self) -> None:
-        """
-        Release the physical MCP runtime and any active ScaffoldHub auth leases.
+        """Release environment hooks, runtime resources, and auth leases."""
+        env_release_error: Exception | None = None
+        for lifecycle_type, lifecycle in self.env_lifecycles.items():
+            try:
+                await lifecycle.release()
+            except Exception as error:
+                logger.warning(
+                    "Failed to release environment lifecycle %s: %s",
+                    lifecycle_type,
+                    error,
+                )
+                if env_release_error is None:
+                    env_release_error = error
 
-        Data cleanup is intentionally handled by explicit reset calls.
-        """
         auth_release_error: Exception | None = None
         try:
             if self.running:
                 try:
                     await self._rock_runtime.stop()
                 except Exception as error:
-                    logger.warning("Failed to stop ROCK runtime during release: %s", error)
+                    logger.warning(
+                        "Failed to stop ROCK runtime during release: %s",
+                        error,
+                    )
 
             try:
                 self.auth_provider.release_active_leases()
@@ -234,7 +246,17 @@ class McpEnv:
             self.resolved_servers = {}
 
         if auth_release_error is not None:
-            raise RuntimeError("Failed to release MCP auth leases") from auth_release_error
+            if env_release_error is not None:
+                logger.warning(
+                    "Environment lifecycle release also failed: %s",
+                    env_release_error,
+                )
+            raise RuntimeError(
+                "Failed to release MCP auth leases"
+            ) from auth_release_error
+
+        if env_release_error is not None:
+            raise env_release_error
 
     def _compose_before_launch(
         self,

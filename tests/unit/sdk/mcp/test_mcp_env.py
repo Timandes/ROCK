@@ -16,6 +16,16 @@ class RecordingRuntime:
         self.stopped = True
 
 
+class OrderedRecordingRuntime(RecordingRuntime):
+    def __init__(self, events: list[str]):
+        super().__init__()
+        self.events = events
+
+    async def stop(self):
+        self.events.append("runtime_stop")
+        await super().stop()
+
+
 class FailingStopRuntime:
     async def stop(self):
         raise RuntimeError("stop failed")
@@ -121,6 +131,15 @@ class RecordingEnvLifecycle(FakeSandboxAware):
     async def release(self) -> None:
         self.release_calls += 1
         self.events.append(f"{self.name}:env_release")
+
+
+class FailingReleaseEnvLifecycle(RecordingEnvLifecycle):
+    def __init__(self, name: str, events: list[str]):
+        super().__init__(name=name, events=events)
+
+    async def release(self) -> None:
+        self.events.append(f"{self.name}:env_release")
+        raise RuntimeError(f"{self.name} release failed")
 
 
 class FailingStartEnvLifecycle(RecordingEnvLifecycle):
@@ -603,6 +622,70 @@ def test_mcp_env_release_releases_auth_leases(monkeypatch):
     assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
+
+
+def test_mcp_env_release_runs_environment_before_runtime(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    lifecycle = RecordingEnvLifecycle(events=events)
+    env.env_lifecycles = {"slack": lifecycle}
+    env._rock_runtime = OrderedRecordingRuntime(events)
+    env.running = True
+
+    asyncio.run(env.release())
+
+    assert events == ["env:env_release", "runtime_stop"]
+    assert env.auth_provider.release_active_leases_calls == 1
+
+
+def test_mcp_env_release_continues_after_environment_failure(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    first = FailingReleaseEnvLifecycle("first", events)
+    second = RecordingEnvLifecycle(events=events)
+    env.env_lifecycles = {"first": first, "second": second}
+    runtime = OrderedRecordingRuntime(events)
+    env._rock_runtime = runtime
+    env.running = True
+
+    with pytest.raises(RuntimeError, match="first release failed"):
+        asyncio.run(env.release())
+
+    assert events == [
+        "first:env_release",
+        "env:env_release",
+        "runtime_stop",
+    ]
+    assert second.release_calls == 1
+    assert runtime.stopped is True
+    assert env.auth_provider.release_active_leases_calls == 1
+    assert env.running is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
+
+
+def test_mcp_env_release_prefers_auth_error_over_environment_error(
+    monkeypatch,
+    caplog,
+):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    env.env_lifecycles = {
+        "slack": FailingReleaseEnvLifecycle("slack", events)
+    }
+    env.auth_provider = FailingReleaseAuthProvider()
+    env.data_lifecycle_factory.auth_provider = env.auth_provider
+    env._rock_runtime = OrderedRecordingRuntime(events)
+    env.running = True
+
+    with pytest.raises(RuntimeError, match="Failed to release MCP auth leases"):
+        asyncio.run(env.release())
+
+    assert "slack release failed" in caplog.text
+    assert env.running is False
 
 
 def test_mcp_env_release_retries_auth_release_when_runtime_is_not_running(monkeypatch):
