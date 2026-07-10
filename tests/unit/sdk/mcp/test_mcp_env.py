@@ -91,6 +91,38 @@ class FakeSandboxAware:
         self.sandbox = sandbox
 
 
+class RecordingEnvLifecycle(FakeSandboxAware):
+    def __init__(
+        self,
+        *,
+        name: str = "env",
+        alive: bool = True,
+        events: list[str] | None = None,
+    ):
+        self.name = name
+        self.alive = alive
+        self.events = events if events is not None else []
+        self.sandbox = None
+        self.start_configs = []
+        self.release_calls = 0
+
+    def set_sandbox(self, sandbox) -> None:
+        self.sandbox = sandbox
+        self.events.append(f"{self.name}:env_set_sandbox")
+
+    async def start(self, server_config: dict) -> None:
+        self.start_configs.append(deepcopy(server_config))
+        self.events.append(f"{self.name}:env_start")
+
+    async def is_alive(self) -> bool:
+        self.events.append(f"{self.name}:env_is_alive")
+        return self.alive
+
+    async def release(self) -> None:
+        self.release_calls += 1
+        self.events.append(f"{self.name}:env_release")
+
+
 class RecordingSandboxAwareLifecycle(RecordingDataLifecycle, FakeSandboxAware):
     def __init__(self):
         super().__init__()
@@ -145,19 +177,48 @@ class FakeDataLifecycleFactory:
         return lifecycle
 
 
+class FakeEnvLifecycleFactory:
+    def __init__(self):
+        self.created = {}
+
+    def supports(self, lifecycle_type: str) -> bool:
+        return lifecycle_type == "slack"
+
+    def create(self, lifecycle_type: str):
+        if lifecycle_type != "slack":
+            raise ValueError(f"Unsupported environment lifecycle type: {lifecycle_type}")
+        lifecycle = RecordingEnvLifecycle()
+        self.created[lifecycle_type] = lifecycle
+        return lifecycle
+
+
+class FailingEnvLifecycleFactory(FakeEnvLifecycleFactory):
+    def supports(self, lifecycle_type: str) -> bool:
+        return True
+
+    def create(self, lifecycle_type: str):
+        raise RuntimeError(f"failed to create {lifecycle_type}")
+
+
 class FailingReleaseAuthProvider(FakeAuthProvider):
     def release_active_leases(self) -> None:
         self.release_active_leases_calls += 1
         raise RuntimeError("database release failed")
 
 
-def install_fake_scaffoldhub(monkeypatch, *, include_sandbox_aware: bool = True):
+def install_fake_scaffoldhub(
+    monkeypatch,
+    *,
+    include_sandbox_aware: bool = True,
+    env_lifecycle_factory_class=FakeEnvLifecycleFactory,
+):
     scaffoldhub = ModuleType("scaffoldhub")
     auth = ModuleType("scaffoldhub.auth")
     tools = ModuleType("scaffoldhub.tools")
     base = ModuleType("scaffoldhub.tools.base")
     auth.AuthProvider = FakeAuthProvider
     base.DataLifecycleFactory = FakeDataLifecycleFactory
+    base.EnvLifecycleFactory = env_lifecycle_factory_class
     if include_sandbox_aware:
         base.SandboxAware = FakeSandboxAware
 
@@ -167,8 +228,17 @@ def install_fake_scaffoldhub(monkeypatch, *, include_sandbox_aware: bool = True)
     monkeypatch.setitem(sys.modules, "scaffoldhub.tools.base", base)
 
 
-def reload_mcp_env(monkeypatch, *, include_sandbox_aware: bool = True):
-    install_fake_scaffoldhub(monkeypatch, include_sandbox_aware=include_sandbox_aware)
+def reload_mcp_env(
+    monkeypatch,
+    *,
+    include_sandbox_aware: bool = True,
+    env_lifecycle_factory_class=FakeEnvLifecycleFactory,
+):
+    install_fake_scaffoldhub(
+        monkeypatch,
+        include_sandbox_aware=include_sandbox_aware,
+        env_lifecycle_factory_class=env_lifecycle_factory_class,
+    )
     sys.modules.pop("rock.sdk.mcp.mcp_env", None)
     module = importlib.import_module("rock.sdk.mcp.mcp_env")
     return importlib.reload(module)
@@ -261,6 +331,35 @@ def test_mcp_env_owns_auth_provider_and_passes_it_to_lifecycle_factory(monkeypat
     assert isinstance(env.auth_provider, FakeAuthProvider)
     assert FakeDataLifecycleFactory.last_auth_provider is env.auth_provider
     assert env.data_lifecycle_factory.auth_provider is env.auth_provider
+
+
+def test_mcp_env_constructs_registered_environment_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+
+    assert isinstance(env.env_lifecycle_factory, FakeEnvLifecycleFactory)
+    assert isinstance(env.env_lifecycles["slack"], RecordingEnvLifecycle)
+
+
+def test_mcp_env_skips_unregistered_environment_lifecycle(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+
+    env = mcp_env.McpEnv(
+        servers={"github": {"command": "github-mcp-server"}}
+    )
+
+    assert env.env_lifecycles == {}
+
+
+def test_mcp_env_propagates_registered_environment_lifecycle_creation_failure(monkeypatch):
+    mcp_env = reload_mcp_env(
+        monkeypatch,
+        env_lifecycle_factory_class=FailingEnvLifecycleFactory,
+    )
+
+    with pytest.raises(RuntimeError, match="failed to create slack"):
+        mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
 
 def test_mcp_env_constructor_reports_missing_scaffoldhub(monkeypatch):

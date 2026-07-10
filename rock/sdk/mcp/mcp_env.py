@@ -14,16 +14,19 @@ logger = logging.getLogger(__name__)
 def _load_scaffoldhub_components():
     try:
         from scaffoldhub.auth import AuthProvider
-        from scaffoldhub.tools.base import DataLifecycleFactory
+        from scaffoldhub.tools.base import DataLifecycleFactory, EnvLifecycleFactory
     except ImportError as error:
-        raise ImportError("rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`.") from error
+        raise ImportError(
+            "rock.sdk.mcp requires scaffoldhub. "
+            "Install it with `pip install 'rl-rock[mcp]'`."
+        ) from error
 
     try:
         from scaffoldhub.tools.base import SandboxAware
     except ImportError:
         SandboxAware = None
 
-    return AuthProvider, DataLifecycleFactory, SandboxAware
+    return AuthProvider, DataLifecycleFactory, EnvLifecycleFactory, SandboxAware
 
 
 def _snapshot_runtime_options(options: RockRuntimeOptions | None) -> RockRuntimeOptions:
@@ -70,16 +73,33 @@ class McpEnv:
         self.urls = {}
         self.servers = deepcopy(servers)
         self.resolved_servers = {}
-        auth_provider_class, data_lifecycle_factory_class, sandbox_aware_class = _load_scaffoldhub_components()
+        (
+            auth_provider_class,
+            data_lifecycle_factory_class,
+            env_lifecycle_factory_class,
+            sandbox_aware_class,
+        ) = _load_scaffoldhub_components()
         self.auth_provider = auth_provider_class()
-        self.data_lifecycle_factory = data_lifecycle_factory_class(auth_provider=self.auth_provider)
+        self.data_lifecycle_factory = data_lifecycle_factory_class(
+            auth_provider=self.auth_provider
+        )
+        self.env_lifecycle_factory = env_lifecycle_factory_class()
         self.sandbox_aware_class = sandbox_aware_class
         self.data_lifecycles: dict[str, Any] = {}
-        self._rock_runtime = RockRuntime(options=_snapshot_runtime_options(runtime_options))
+        self.env_lifecycles: dict[str, Any] = {}
+        self._rock_runtime = RockRuntime(
+            options=_snapshot_runtime_options(runtime_options)
+        )
 
         for lifecycle_type in self.servers:
             if self.data_lifecycle_factory.supports(lifecycle_type):
-                self.data_lifecycles[lifecycle_type] = self.data_lifecycle_factory.create(lifecycle_type)
+                self.data_lifecycles[lifecycle_type] = (
+                    self.data_lifecycle_factory.create(lifecycle_type)
+                )
+            if self.env_lifecycle_factory.supports(lifecycle_type):
+                self.env_lifecycles[lifecycle_type] = (
+                    self.env_lifecycle_factory.create(lifecycle_type)
+                )
 
     @property
     def sandbox(self) -> Sandbox | None:
