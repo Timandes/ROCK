@@ -121,14 +121,25 @@ class McpEnv:
         """
         self.running = False
         self.urls = {}
-        self.resolved_servers = {
-            server_name: self._resolve_server_config(server_name, server_config)
-            for server_name, server_config in self.servers.items()
-        }
-        urls = await self._rock_runtime.start(
-            self.resolved_servers,
-            before_launch=self._compose_before_launch(before_launch),
-        )
+        try:
+            self.resolved_servers = {
+                server_name: self._resolve_server_config(server_name, server_config)
+                for server_name, server_config in self.servers.items()
+            }
+            urls = await self._rock_runtime.start(
+                self.resolved_servers,
+                before_launch=self._compose_before_launch(before_launch),
+            )
+        except Exception:
+            try:
+                await self.release()
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to clean up MCP resources after startup failure: %s",
+                    cleanup_error,
+                )
+            raise
+
         self.urls = urls
         self.running = True
 

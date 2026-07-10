@@ -138,6 +138,7 @@ class FailingReleaseEnvLifecycle(RecordingEnvLifecycle):
         super().__init__(name=name, events=events)
 
     async def release(self) -> None:
+        self.release_calls += 1
         self.events.append(f"{self.name}:env_release")
         raise RuntimeError(f"{self.name} release failed")
 
@@ -145,6 +146,7 @@ class FailingReleaseEnvLifecycle(RecordingEnvLifecycle):
 class FailingStartEnvLifecycle(RecordingEnvLifecycle):
     async def start(self, server_config: dict) -> None:
         del server_config
+        self.events.append(f"{self.name}:env_start")
         raise RuntimeError("environment start failed")
 
 
@@ -245,6 +247,13 @@ class FailingReleaseAuthProvider(FakeAuthProvider):
     def release_active_leases(self) -> None:
         self.release_active_leases_calls += 1
         raise RuntimeError("database release failed")
+
+
+class FailingResolutionAuthProvider(FakeAuthProvider):
+    def provide(self, platform: str) -> dict:
+        if platform == "github":
+            raise RuntimeError("config resolution failed")
+        return super().provide(platform)
 
 
 def install_fake_scaffoldhub(
@@ -666,6 +675,25 @@ def test_mcp_env_release_continues_after_environment_failure(monkeypatch):
     assert env.resolved_servers == {}
 
 
+def test_mcp_env_release_attempts_all_failing_environments_and_raises_first(
+    monkeypatch,
+):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    first = FailingReleaseEnvLifecycle("first", events)
+    second = FailingReleaseEnvLifecycle("second", events)
+    env.env_lifecycles = {"first": first, "second": second}
+
+    with pytest.raises(RuntimeError, match="first release failed"):
+        asyncio.run(env.release())
+
+    assert events == ["first:env_release", "second:env_release"]
+    assert first.release_calls == 1
+    assert second.release_calls == 1
+    assert env.auth_provider.release_active_leases_calls == 1
+
+
 def test_mcp_env_release_prefers_auth_error_over_environment_error(
     monkeypatch,
     caplog,
@@ -901,6 +929,131 @@ def test_mcp_env_start_propagates_environment_failure_and_runtime_cleans_up(monk
     assert runtime.stop_calls == 1
     assert env.running is False
     assert env.urls == {}
+
+
+def test_mcp_env_start_rolls_back_started_environments_when_later_start_fails(
+    monkeypatch,
+):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(
+        servers={
+            "first": {"command": "first"},
+            "second": {"command": "second"},
+        }
+    )
+    events: list[str] = []
+    first = RecordingEnvLifecycle(name="first", events=events)
+    second = FailingStartEnvLifecycle(name="second", events=events)
+    env.env_lifecycles = {"first": first, "second": second}
+    runtime = CleanupRecordingStartRuntime()
+    env._rock_runtime = runtime
+
+    with pytest.raises(RuntimeError, match="environment start failed"):
+        asyncio.run(env.start())
+
+    assert events == [
+        "first:env_set_sandbox",
+        "second:env_set_sandbox",
+        "first:env_start",
+        "second:env_start",
+        "first:env_release",
+        "second:env_release",
+    ]
+    assert runtime.stop_calls == 1
+    assert env.auth_provider.release_active_leases_calls == 1
+    assert env.running is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
+
+
+def test_mcp_env_start_rolls_back_environment_when_user_hook_fails(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    lifecycle = RecordingEnvLifecycle(events=events)
+    env.env_lifecycles = {"slack": lifecycle}
+    runtime = CleanupRecordingStartRuntime()
+    env._rock_runtime = runtime
+
+    async def failing_before_launch(sandbox):
+        del sandbox
+        events.append("user_before_launch")
+        raise RuntimeError("user hook failed")
+
+    with pytest.raises(RuntimeError, match="user hook failed"):
+        asyncio.run(env.start(before_launch=failing_before_launch))
+
+    assert events == [
+        "env:env_set_sandbox",
+        "env:env_start",
+        "user_before_launch",
+        "env:env_release",
+    ]
+    assert runtime.stop_calls == 1
+    assert env.auth_provider.release_active_leases_calls == 1
+    assert env.running is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
+
+
+def test_mcp_env_start_preserves_original_error_when_rollback_fails(
+    monkeypatch,
+    caplog,
+):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    lifecycle = FailingReleaseEnvLifecycle("slack", events)
+    env.env_lifecycles = {"slack": lifecycle}
+    runtime = CleanupRecordingStartRuntime()
+    env._rock_runtime = runtime
+    start_error = RuntimeError("original start failed")
+
+    async def failing_before_launch(sandbox):
+        del sandbox
+        raise start_error
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(env.start(before_launch=failing_before_launch))
+
+    assert exc_info.value is start_error
+    assert lifecycle.release_calls == 1
+    assert runtime.stop_calls == 1
+    assert env.auth_provider.release_active_leases_calls == 1
+    assert "slack release failed" in caplog.text
+    assert env.running is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
+
+
+def test_mcp_env_start_rolls_back_auth_leases_when_config_resolution_fails(
+    monkeypatch,
+):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(
+        servers={
+            "slack": slack_server_config(),
+            "github": {
+                "command": "github-mcp-server",
+                "env": {"GITHUB_TOKEN": "${GITHUB_TOKEN}"},
+            },
+        }
+    )
+    auth_provider = FailingResolutionAuthProvider()
+    env.auth_provider = auth_provider
+    env.data_lifecycle_factory.auth_provider = auth_provider
+    runtime = RecordingStartRuntime()
+    env._rock_runtime = runtime
+
+    with pytest.raises(RuntimeError, match="config resolution failed"):
+        asyncio.run(env.start())
+
+    assert runtime.started_servers is None
+    assert env.env_lifecycles["slack"].release_calls == 1
+    assert auth_provider.release_active_leases_calls == 1
+    assert env.running is False
+    assert env.urls == {}
+    assert env.resolved_servers == {}
 
 
 def test_mcp_env_is_alive_returns_single_environment_value(monkeypatch):
