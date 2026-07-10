@@ -31,7 +31,7 @@ async def run_real_rock_calculator_server_case():
 
     try:
         await env.start()
-        assert env.is_alive() is True
+        assert await env.is_alive() is True
 
         await env.init({})
         urls = env.get_urls()
@@ -44,10 +44,10 @@ async def run_real_rock_calculator_server_case():
             assert response.status_code == 200
             assert "text/event-stream" in response.headers.get("content-type", "")
     finally:
-        if env.is_alive():
+        if await env.is_alive():
             await env.release()
 
-    assert env.is_alive() is False
+    assert await env.is_alive() is False
 
 
 def test_mcp_env_starts_real_rock_calculator_server_and_returns_sse_url():
@@ -68,7 +68,7 @@ async def run_real_rock_async_before_launch_case():
         await env.start(before_launch=before_launch)
         await env.init({})
 
-        assert env.is_alive() is True
+        assert await env.is_alive() is True
         assert env.sandbox is not None
         assert seen_sandbox_ids == [env.sandbox.sandbox_id]
 
@@ -76,7 +76,7 @@ async def run_real_rock_async_before_launch_case():
         assert result.exit_code == 0
         assert env.get_urls()["calculator"].endswith("/calculator/sse")
     finally:
-        if env.is_alive():
+        if await env.is_alive():
             await env.release()
 
 
@@ -96,11 +96,11 @@ async def run_real_rock_sync_before_launch_case():
         await env.start(before_launch=before_launch)
         await env.init({})
 
-        assert env.is_alive() is True
+        assert await env.is_alive() is True
         assert env.sandbox is not None
         assert seen_sandbox_ids == [env.sandbox.sandbox_id]
     finally:
-        if env.is_alive():
+        if await env.is_alive():
             await env.release()
 
 

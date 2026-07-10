@@ -132,14 +132,18 @@ class McpEnv:
         self.urls = urls
         self.running = True
 
-    def is_alive(self) -> bool:
-        """
-        Return the runtime state recorded by this facade.
+    async def is_alive(self, key: str | None = None) -> bool:
+        """Return one environment status or aggregate all configured statuses."""
+        if key is not None:
+            lifecycle = self.env_lifecycles.get(key)
+            if lifecycle is None:
+                return True
+            return await lifecycle.is_alive()
 
-        Returns:
-            True after successful start, false after release.
-        """
-        return self.running
+        results = []
+        for lifecycle in self.env_lifecycles.values():
+            results.append(await lifecycle.is_alive())
+        return self.running and all(results)
 
     async def init(self, data: dict) -> None:
         """
@@ -232,9 +236,15 @@ class McpEnv:
         if auth_release_error is not None:
             raise RuntimeError("Failed to release MCP auth leases") from auth_release_error
 
-    def _compose_before_launch(self, before_launch: BeforeLaunchHook | None) -> BeforeLaunchHook:
+    def _compose_before_launch(
+        self,
+        before_launch: BeforeLaunchHook | None,
+    ) -> BeforeLaunchHook:
         async def composed_before_launch(sandbox: Sandbox) -> None:
-            self._inject_sandbox_into_lifecycles(sandbox)
+            self._inject_sandbox_into_lifecycles(self.data_lifecycles, sandbox)
+            self._inject_sandbox_into_lifecycles(self.env_lifecycles, sandbox)
+            await self._start_env_lifecycles()
+
             if before_launch is None:
                 return
 
@@ -244,14 +254,22 @@ class McpEnv:
 
         return composed_before_launch
 
-    def _inject_sandbox_into_lifecycles(self, sandbox: Sandbox) -> None:
+    def _inject_sandbox_into_lifecycles(
+        self,
+        lifecycles: dict[str, Any],
+        sandbox: Sandbox,
+    ) -> None:
         sandbox_aware_class = self.sandbox_aware_class
         if sandbox_aware_class is None:
             return
 
-        for lifecycle in self.data_lifecycles.values():
+        for lifecycle in lifecycles.values():
             if isinstance(lifecycle, sandbox_aware_class):
                 lifecycle.set_sandbox(sandbox)
+
+    async def _start_env_lifecycles(self) -> None:
+        for lifecycle_type, lifecycle in self.env_lifecycles.items():
+            await lifecycle.start(self.resolved_servers[lifecycle_type])
 
     def _resolve_server_config(self, server_name: str, server_config: Any) -> Any:
         if not isinstance(server_config, dict):

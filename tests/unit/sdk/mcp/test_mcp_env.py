@@ -123,6 +123,28 @@ class RecordingEnvLifecycle(FakeSandboxAware):
         self.events.append(f"{self.name}:env_release")
 
 
+class FailingStartEnvLifecycle(RecordingEnvLifecycle):
+    async def start(self, server_config: dict) -> None:
+        del server_config
+        raise RuntimeError("environment start failed")
+
+
+class SequencedAliveEnvLifecycle(RecordingEnvLifecycle):
+    def __init__(self, name: str, alive: bool, calls: list[str]):
+        super().__init__(alive=alive)
+        self.name = name
+        self.calls = calls
+
+    async def is_alive(self) -> bool:
+        self.calls.append(self.name)
+        return self.alive
+
+
+class FailingAliveEnvLifecycle(RecordingEnvLifecycle):
+    async def is_alive(self) -> bool:
+        raise RuntimeError("environment status failed")
+
+
 class RecordingSandboxAwareLifecycle(RecordingDataLifecycle, FakeSandboxAware):
     def __init__(self):
         super().__init__()
@@ -296,7 +318,7 @@ def test_mcp_env_init_dump_and_release_with_declared_server(monkeypatch):
 
     asyncio.run(env.release())
 
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.data_lifecycles["slack"] is lifecycle
     assert env.resolved_servers == {}
@@ -383,7 +405,7 @@ def test_mcp_env_resolves_server_env_placeholders_without_starting_runtime(monke
 
     resolved = env._resolve_server_config("slack", slack_server_config())
 
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert resolved == {
         "command": "npx",
         "args": [
@@ -417,7 +439,7 @@ def test_mcp_env_resolution_keeps_placeholders_when_auth_is_unavailable(monkeypa
 
     resolved = env._resolve_server_config("github", env.servers["github"])
 
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.data_lifecycles == {}
     assert resolved == {
         "command": "github-mcp-server",
@@ -481,7 +503,7 @@ def test_mcp_env_reset_delegates_to_configured_lifecycles_without_stopping_runti
 
     assert lifecycle.reset_calls == 1
     assert asyncio.run(env.dump()) == {}
-    assert env.is_alive() is True
+    assert asyncio.run(env.is_alive()) is True
     assert env.urls == {"slack": "https://example.test/slack/sse"}
     assert env.resolved_servers == {"slack": slack_server_config()}
 
@@ -520,7 +542,7 @@ def test_mcp_env_release_without_start_or_init_is_noop(monkeypatch):
 
     asyncio.run(env.release())
 
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
 
@@ -539,7 +561,7 @@ def test_mcp_env_release_after_start_before_init_stops_runtime_and_preserves_lif
     asyncio.run(env.release())
 
     assert runtime.stopped is True
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
     asyncio.run(env.reset())
@@ -558,7 +580,7 @@ def test_mcp_env_release_preserves_lifecycles_when_runtime_stop_fails(monkeypatc
 
     asyncio.run(env.release())
 
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
     asyncio.run(env.reset())
@@ -578,7 +600,7 @@ def test_mcp_env_release_releases_auth_leases(monkeypatch):
 
     assert runtime.stopped is True
     assert env.auth_provider.release_active_leases_calls == 1
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
 
@@ -611,7 +633,7 @@ def test_mcp_env_release_raises_when_auth_release_fails_and_clears_state(monkeyp
     assert isinstance(exc_info.value.__cause__, RuntimeError)
     assert str(exc_info.value.__cause__) == "database release failed"
     assert failing_provider.release_active_leases_calls == 1
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
 
@@ -627,7 +649,7 @@ def test_mcp_env_release_still_releases_auth_when_runtime_stop_fails(monkeypatch
     asyncio.run(env.release())
 
     assert env.auth_provider.release_active_leases_calls == 1
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
     assert env.resolved_servers == {}
 
@@ -653,7 +675,7 @@ def test_mcp_env_start_injects_sandbox_into_sandbox_aware_lifecycle(monkeypatch)
 
     assert lifecycle.sandbox is sandbox
     assert lifecycle.events == ["set_sandbox"]
-    assert env.is_alive() is True
+    assert asyncio.run(env.is_alive()) is True
     assert env.get_urls() == {"slack": "https://example.test/slack/sse"}
 
 
@@ -689,7 +711,7 @@ def test_mcp_env_start_ignores_non_sandbox_aware_lifecycle(monkeypatch):
     asyncio.run(env.start())
 
     assert not hasattr(lifecycle, "sandbox")
-    assert env.is_alive() is True
+    assert asyncio.run(env.is_alive()) is True
 
 
 def test_mcp_env_start_skips_injection_when_sandbox_aware_is_unavailable(monkeypatch):
@@ -704,7 +726,7 @@ def test_mcp_env_start_skips_injection_when_sandbox_aware_is_unavailable(monkeyp
 
     assert lifecycle.sandbox is None
     assert lifecycle.events == []
-    assert env.is_alive() is True
+    assert asyncio.run(env.is_alive()) is True
 
 
 def test_mcp_env_start_propagates_sandbox_injection_failure_and_runtime_cleans_up(monkeypatch):
@@ -718,8 +740,134 @@ def test_mcp_env_start_propagates_sandbox_injection_failure_and_runtime_cleans_u
         asyncio.run(env.start())
 
     assert runtime.stop_calls == 1
-    assert env.is_alive() is False
+    assert asyncio.run(env.is_alive()) is False
     assert env.urls == {}
+
+
+def test_mcp_env_start_runs_environment_lifecycle_before_user_hook(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    events: list[str] = []
+    lifecycle = RecordingEnvLifecycle(events=events)
+    env.env_lifecycles["slack"] = lifecycle
+    sandbox = object()
+    env._rock_runtime = RecordingStartRuntime(sandbox=sandbox)
+
+    async def before_launch(received_sandbox):
+        assert received_sandbox is sandbox
+        events.append("user_before_launch")
+
+    asyncio.run(env.start(before_launch=before_launch))
+
+    assert lifecycle.sandbox is sandbox
+    assert events == [
+        "env:env_set_sandbox",
+        "env:env_start",
+        "user_before_launch",
+    ]
+
+
+def test_mcp_env_start_passes_resolved_server_config(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = env.env_lifecycles["slack"]
+    env._rock_runtime = RecordingStartRuntime()
+
+    asyncio.run(env.start())
+
+    assert lifecycle.start_configs == [env.resolved_servers["slack"]]
+    assert lifecycle.start_configs[0]["env"]["SLACK_MCP_XOXP_TOKEN"] == (
+        "xoxp-test-token"
+    )
+
+
+def test_mcp_env_start_runs_environment_lifecycles_in_server_order(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(
+        servers={
+            "first": {"command": "first"},
+            "second": {"command": "second"},
+        }
+    )
+    events: list[str] = []
+    first = RecordingEnvLifecycle(name="first", events=events)
+    second = RecordingEnvLifecycle(name="second", events=events)
+    env.env_lifecycles = {"first": first, "second": second}
+    env._rock_runtime = RecordingStartRuntime()
+
+    asyncio.run(env.start())
+
+    assert events == [
+        "first:env_set_sandbox",
+        "second:env_set_sandbox",
+        "first:env_start",
+        "second:env_start",
+    ]
+
+
+def test_mcp_env_start_propagates_environment_failure_and_runtime_cleans_up(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    runtime = CleanupRecordingStartRuntime()
+    env.env_lifecycles["slack"] = FailingStartEnvLifecycle()
+    env._rock_runtime = runtime
+
+    with pytest.raises(RuntimeError, match="environment start failed"):
+        asyncio.run(env.start())
+
+    assert runtime.stop_calls == 1
+    assert env.running is False
+    assert env.urls == {}
+
+
+def test_mcp_env_is_alive_returns_single_environment_value(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.env_lifecycles["slack"].alive = False
+    env.running = True
+
+    assert asyncio.run(env.is_alive("slack")) is False
+
+
+def test_mcp_env_is_alive_returns_true_for_unknown_environment(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.running = False
+
+    assert asyncio.run(env.is_alive("github")) is True
+
+
+def test_mcp_env_is_alive_aggregates_all_without_short_circuit(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    calls: list[str] = []
+    env.env_lifecycles = {
+        "first": SequencedAliveEnvLifecycle("first", False, calls),
+        "second": SequencedAliveEnvLifecycle("second", True, calls),
+    }
+    env.running = True
+
+    assert asyncio.run(env.is_alive()) is False
+    assert calls == ["first", "second"]
+
+
+def test_mcp_env_is_alive_without_environment_lifecycle_uses_running(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(
+        servers={"github": {"command": "github-mcp-server"}}
+    )
+    env.running = True
+
+    assert asyncio.run(env.is_alive()) is True
+
+
+def test_mcp_env_is_alive_propagates_environment_error(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.env_lifecycles["slack"] = FailingAliveEnvLifecycle()
+
+    with pytest.raises(RuntimeError, match="environment status failed"):
+        asyncio.run(env.is_alive())
 
 
 def test_mcp_env_exposes_raw_sandbox_property(monkeypatch):
