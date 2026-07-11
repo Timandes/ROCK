@@ -90,6 +90,30 @@ class AsyncRecordingDataLifecycle:
         self.initialized_data = {}
 
 
+class ReturningInitResultLifecycle(RecordingDataLifecycle):
+    def init(self, data: dict) -> dict:
+        super().init(data)
+        return {"initialized": True, "result": deepcopy(data)}
+
+
+class AsyncReturningInitResultLifecycle(AsyncRecordingDataLifecycle):
+    async def init(self, data: dict) -> dict:
+        await super().init(data)
+        return {"initialized": True, "result": deepcopy(data)}
+
+
+class DeferredInitResultLifecycle(RecordingDataLifecycle):
+    def init(self, data: dict) -> dict:
+        super().init(data)
+        return {"initialized": False, "result": {}}
+
+
+class EmptyInitResultLifecycle(RecordingDataLifecycle):
+    def init(self, data: dict) -> dict:
+        super().init(data)
+        return {}
+
+
 class FakeSandboxAware:
     def set_sandbox(self, sandbox) -> None:
         self.sandbox = sandbox
@@ -675,6 +699,40 @@ def test_mcp_env_init_awaits_async_lifecycle(monkeypatch):
 
     assert lifecycle.initialized_data == data["slack"]
     assert asyncio.run(env.dump()) == {"slack": {"channels": ["general"]}}
+
+
+def test_mcp_env_init_returns_lifecycle_results(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config(), "github": slack_server_config()})
+    env.data_lifecycles["slack"] = ReturningInitResultLifecycle()
+    env.data_lifecycles["github"] = AsyncReturningInitResultLifecycle()
+
+    result = asyncio.run(env.init({"slack": {"key": "sync"}, "github": {"key": "async"}}))
+
+    assert result == {
+        "slack": {"initialized": True, "result": {"key": "sync"}},
+        "github": {"initialized": True, "result": {"key": "async"}},
+    }
+
+
+def test_mcp_env_init_keeps_deferred_init_result(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.data_lifecycles["slack"] = DeferredInitResultLifecycle()
+
+    result = asyncio.run(env.init({"slack": {"reset": []}}))
+
+    assert result == {"slack": {"initialized": False, "result": {}}}
+
+
+def test_mcp_env_init_keeps_empty_lifecycle_result(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    env.data_lifecycles["slack"] = EmptyInitResultLifecycle()
+
+    result = asyncio.run(env.init({"slack": {"reset": []}}))
+
+    assert result == {"slack": {}}
 
 
 def test_mcp_env_dump_awaits_async_lifecycle(monkeypatch):

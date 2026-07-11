@@ -121,12 +121,15 @@ class McpEnv:
         """
         return self.running
 
-    async def init(self, data: dict) -> None:
+    async def init(self, data: dict) -> dict:
         """
         Initialize MCP environment data.
 
         Args:
             data: Layered environment data, such as ``{"slack": {...}}``.
+
+        Returns:
+            Layered init results returned by configured data lifecycle init calls.
 
         Raises:
             TypeError: Raised when data is not a dict or an intersecting
@@ -135,13 +138,17 @@ class McpEnv:
         if not isinstance(data, dict):
             raise TypeError("data must be a dict")
 
+        init_results = {}
         for lifecycle_type in self.data_lifecycles.keys() & data.keys():
             lifecycle_data = data[lifecycle_type]
             if not isinstance(lifecycle_data, dict):
                 raise TypeError(f"data for {lifecycle_type} must be a dict")
             result = self.data_lifecycles[lifecycle_type].init(lifecycle_data)
             if inspect.isawaitable(result):
-                await result
+                result = await result
+            if result is not None:
+                init_results[lifecycle_type] = result
+        return init_results
 
     async def reset(self) -> None:
         """
