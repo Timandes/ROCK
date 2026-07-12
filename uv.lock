@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 1
 requires-python = ">=3.10, <4.0"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform != 'win32'",
@@ -4515,7 +4515,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.10.0.dev2026071001"
+version = "1.11.0.dev2026071217"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
