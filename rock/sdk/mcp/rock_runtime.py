@@ -17,6 +17,7 @@ from rock.sdk.sandbox.client import Sandbox
 from rock.sdk.sandbox.config import SandboxConfig
 
 BeforeLaunchHook = Callable[[Sandbox], Awaitable[None] | None]
+StartFailureHook = Callable[[], Awaitable[None] | None]
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,7 @@ class RockRuntime:
         self,
         servers: dict[str, Any],
         before_launch: BeforeLaunchHook | None = None,
+        on_start_failure: StartFailureHook | None = None,
     ) -> dict[str, str]:
         if self._started or self._sandbox is not None or self._sandbox_id is not None:
             raise RockRuntimeError("ROCK runtime has already been started")
@@ -204,11 +206,17 @@ class RockRuntime:
             await self._health_check(sorted(servers.keys()))
             self._started = True
             return self.get_all_server_urls(sorted(servers.keys()))
-        except Exception as error:
+        except (asyncio.CancelledError, Exception) as error:
+            try:
+                await self._run_start_failure_hook(on_start_failure)
+            except Exception as cleanup_error:
+                logger.warning("Failed to clean up resources before stopping ROCK runtime: %s", cleanup_error)
             try:
                 await self.stop()
             except Exception as cleanup_error:
                 logger.warning("Failed to stop ROCK runtime after startup failure: %s", cleanup_error)
+            if isinstance(error, asyncio.CancelledError):
+                raise
             if isinstance(error, RockRuntimeError):
                 raise
             raise RockRuntimeError(f"Failed to start ROCK runtime: {error}") from error
@@ -242,6 +250,17 @@ class RockRuntime:
             return
 
         result = before_launch(self._require_sandbox())
+        if inspect.isawaitable(result):
+            await result
+
+    async def _run_start_failure_hook(
+        self,
+        on_start_failure: StartFailureHook | None,
+    ) -> None:
+        if on_start_failure is None:
+            return
+
+        result = on_start_failure()
         if inspect.isawaitable(result):
             await result
 
