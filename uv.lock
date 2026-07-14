@@ -4697,7 +4697,7 @@ requires-dist = [
     { name = "rl-rock", extras = ["builder"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
-    { name = "scaffoldhub", marker = "python_full_version >= '3.11' and python_full_version < '3.13' and extra == 'mcp'", specifier = "==0.1.6", index = "https://artlab.alibaba-inc.com/1/pypi/simple" },
+    { name = "scaffoldhub", marker = "python_full_version >= '3.11' and python_full_version < '3.13' and extra == 'mcp'", specifier = ">=0.1.6", index = "https://artlab.alibaba-inc.com/1/pypi/simple" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
     { name = "sqlmodel", marker = "extra == 'sandbox-actor'" },
     { name = "swebench", marker = "extra == 'builder'" },

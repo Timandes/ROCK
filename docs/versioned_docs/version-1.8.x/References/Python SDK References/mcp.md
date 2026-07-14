@@ -16,7 +16,7 @@ pip install --extra-index-url https://artlab.alibaba-inc.com/1/pypi/simple "rl-r
 
 The MCP extra currently supports Python 3.11 and 3.12 because the published
 ScaffoldHub package is Python 3.11+ and ROCK officially supports Python 3.10 to
-3.12. The MCP extra depends on `scaffoldhub==0.1.5`.
+3.12. The MCP extra depends on `scaffoldhub>=0.1.6`.
 
 ## Basic Usage
 
