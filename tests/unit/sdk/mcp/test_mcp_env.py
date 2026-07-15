@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import inspect
+import logging
 import sys
 from copy import deepcopy
 from types import ModuleType
@@ -570,8 +571,9 @@ def test_mcp_env_constructor_preserves_creation_error_when_auth_release_fails(mo
         env_lifecycle_factory_class=FailingEnvLifecycleFactory,
     )
 
-    with pytest.raises(RuntimeError, match="failed to create slack"):
-        mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    with caplog.at_level(logging.WARNING, logger=mcp_env.__name__):
+        with pytest.raises(RuntimeError, match="failed to create slack"):
+            mcp_env.McpEnv(servers={"slack": slack_server_config()})
 
     auth_provider = FakeDataLifecycleFactory.last_auth_provider
     assert auth_provider.release_active_leases_calls == 1
