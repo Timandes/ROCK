@@ -287,9 +287,11 @@ class FakeAuthProvider:
                 "SLACK_MCP_XOXB_TOKEN": "xoxb-test-token",
             }
         }
+        self.provide_calls: list[str] = []
         self.release_active_leases_calls = 0
 
     def provide(self, platform: str) -> dict:
+        self.provide_calls.append(platform)
         if platform not in self.auth:
             raise ValueError(f"Unsupported platform: {platform}")
         return self.auth[platform]
@@ -312,9 +314,27 @@ class FakeDataLifecycleFactory:
     def create(self, lifecycle_type: str):
         if lifecycle_type != "slack":
             raise ValueError(f"Unsupported data lifecycle type: {lifecycle_type}")
+        self.auth_provider.provide(lifecycle_type)
         lifecycle = RecordingDataLifecycle()
         self.created[lifecycle_type] = lifecycle
         return lifecycle
+
+
+class MultiPlatformAuthProvider(FakeAuthProvider):
+    def __init__(self):
+        super().__init__()
+        self.auth["second"] = {"TOKEN": "second-token"}
+
+
+class FailingSecondDataLifecycleFactory(FakeDataLifecycleFactory):
+    def supports(self, lifecycle_type: str) -> bool:
+        return lifecycle_type in {"slack", "second"}
+
+    def create(self, lifecycle_type: str):
+        if lifecycle_type == "second":
+            self.auth_provider.provide(lifecycle_type)
+            raise RuntimeError("failed to create second")
+        return super().create(lifecycle_type)
 
 
 class FakeEnvLifecycleFactory:
@@ -340,6 +360,15 @@ class FailingEnvLifecycleFactory(FakeEnvLifecycleFactory):
         raise RuntimeError(f"failed to create {lifecycle_type}")
 
 
+class LifecycleConstructionInterrupted(BaseException):
+    pass
+
+
+class InterruptingEnvLifecycleFactory(FakeEnvLifecycleFactory):
+    def create(self, lifecycle_type: str):
+        raise LifecycleConstructionInterrupted(f"interrupted while creating {lifecycle_type}")
+
+
 class FailingReleaseAuthProvider(FakeAuthProvider):
     def release_active_leases(self) -> None:
         self.release_active_leases_calls += 1
@@ -357,14 +386,16 @@ def install_fake_scaffoldhub(
     monkeypatch,
     *,
     include_sandbox_aware: bool = True,
+    auth_provider_class=FakeAuthProvider,
+    data_lifecycle_factory_class=FakeDataLifecycleFactory,
     env_lifecycle_factory_class=FakeEnvLifecycleFactory,
 ):
     scaffoldhub = ModuleType("scaffoldhub")
     auth = ModuleType("scaffoldhub.auth")
     tools = ModuleType("scaffoldhub.tools")
     base = ModuleType("scaffoldhub.tools.base")
-    auth.AuthProvider = FakeAuthProvider
-    base.DataLifecycleFactory = FakeDataLifecycleFactory
+    auth.AuthProvider = auth_provider_class
+    base.DataLifecycleFactory = data_lifecycle_factory_class
     base.EnvLifecycleFactory = env_lifecycle_factory_class
     if include_sandbox_aware:
         base.SandboxAware = FakeSandboxAware
@@ -379,11 +410,15 @@ def reload_mcp_env(
     monkeypatch,
     *,
     include_sandbox_aware: bool = True,
+    auth_provider_class=FakeAuthProvider,
+    data_lifecycle_factory_class=FakeDataLifecycleFactory,
     env_lifecycle_factory_class=FakeEnvLifecycleFactory,
 ):
     install_fake_scaffoldhub(
         monkeypatch,
         include_sandbox_aware=include_sandbox_aware,
+        auth_provider_class=auth_provider_class,
+        data_lifecycle_factory_class=data_lifecycle_factory_class,
         env_lifecycle_factory_class=env_lifecycle_factory_class,
     )
     sys.modules.pop("rock.sdk.mcp.mcp_env", None)
@@ -478,6 +513,23 @@ def test_mcp_env_owns_auth_provider_and_passes_it_to_lifecycle_factory(monkeypat
     assert isinstance(env.auth_provider, FakeAuthProvider)
     assert FakeDataLifecycleFactory.last_auth_provider is env.auth_provider
     assert env.data_lifecycle_factory.auth_provider is env.auth_provider
+    assert env.auth_provider.provide_calls == ["slack"]
+    assert env.auth_provider.release_active_leases_calls == 0
+
+
+def test_mcp_env_constructor_releases_auth_when_later_data_lifecycle_creation_fails(monkeypatch):
+    mcp_env = reload_mcp_env(
+        monkeypatch,
+        auth_provider_class=MultiPlatformAuthProvider,
+        data_lifecycle_factory_class=FailingSecondDataLifecycleFactory,
+    )
+
+    with pytest.raises(RuntimeError, match="failed to create second"):
+        mcp_env.McpEnv(servers={"slack": slack_server_config(), "second": {}})
+
+    auth_provider = FakeDataLifecycleFactory.last_auth_provider
+    assert auth_provider.provide_calls == ["slack", "second"]
+    assert auth_provider.release_active_leases_calls == 1
 
 
 def test_mcp_env_constructs_registered_environment_lifecycle(monkeypatch):
@@ -497,7 +549,7 @@ def test_mcp_env_skips_unregistered_environment_lifecycle(monkeypatch):
     assert env.env_lifecycles == {}
 
 
-def test_mcp_env_propagates_registered_environment_lifecycle_creation_failure(monkeypatch):
+def test_mcp_env_constructor_releases_auth_when_environment_lifecycle_creation_fails(monkeypatch):
     mcp_env = reload_mcp_env(
         monkeypatch,
         env_lifecycle_factory_class=FailingEnvLifecycleFactory,
@@ -505,6 +557,40 @@ def test_mcp_env_propagates_registered_environment_lifecycle_creation_failure(mo
 
     with pytest.raises(RuntimeError, match="failed to create slack"):
         mcp_env.McpEnv(servers={"slack": slack_server_config()})
+
+    auth_provider = FakeDataLifecycleFactory.last_auth_provider
+    assert auth_provider.provide_calls == ["slack"]
+    assert auth_provider.release_active_leases_calls == 1
+
+
+def test_mcp_env_constructor_preserves_creation_error_when_auth_release_fails(monkeypatch, caplog):
+    mcp_env = reload_mcp_env(
+        monkeypatch,
+        auth_provider_class=FailingReleaseAuthProvider,
+        env_lifecycle_factory_class=FailingEnvLifecycleFactory,
+    )
+
+    with pytest.raises(RuntimeError, match="failed to create slack"):
+        mcp_env.McpEnv(servers={"slack": slack_server_config()})
+
+    auth_provider = FakeDataLifecycleFactory.last_auth_provider
+    assert auth_provider.release_active_leases_calls == 1
+    assert "Failed to release MCP auth leases after lifecycle construction failure" in caplog.text
+    assert "database release failed" in caplog.text
+
+
+def test_mcp_env_constructor_releases_auth_on_base_exception(monkeypatch):
+    mcp_env = reload_mcp_env(
+        monkeypatch,
+        env_lifecycle_factory_class=InterruptingEnvLifecycleFactory,
+    )
+
+    with pytest.raises(LifecycleConstructionInterrupted, match="interrupted while creating slack"):
+        mcp_env.McpEnv(servers={"slack": slack_server_config()})
+
+    auth_provider = FakeDataLifecycleFactory.last_auth_provider
+    assert auth_provider.provide_calls == ["slack"]
+    assert auth_provider.release_active_leases_calls == 1
 
 
 def test_mcp_env_constructor_reports_missing_scaffoldhub(monkeypatch):

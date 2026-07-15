@@ -82,15 +82,29 @@ class McpEnv:
         self.data_lifecycle_factory = data_lifecycle_factory_class(auth_provider=self.auth_provider)
         self.env_lifecycle_factory = env_lifecycle_factory_class()
         self.sandbox_aware_class = sandbox_aware_class
-        self.data_lifecycles: dict[str, Any] = {}
-        self.env_lifecycles: dict[str, Any] = {}
         self._rock_runtime = RockRuntime(options=_snapshot_runtime_options(runtime_options))
+        self.data_lifecycles, self.env_lifecycles = self._create_lifecycles()
 
-        for lifecycle_type in self.servers:
-            if self.data_lifecycle_factory.supports(lifecycle_type):
-                self.data_lifecycles[lifecycle_type] = self.data_lifecycle_factory.create(lifecycle_type)
-            if self.env_lifecycle_factory.supports(lifecycle_type):
-                self.env_lifecycles[lifecycle_type] = self.env_lifecycle_factory.create(lifecycle_type)
+    def _create_lifecycles(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        data_lifecycles: dict[str, Any] = {}
+        env_lifecycles: dict[str, Any] = {}
+        try:
+            for lifecycle_type in self.servers:
+                if self.data_lifecycle_factory.supports(lifecycle_type):
+                    data_lifecycles[lifecycle_type] = self.data_lifecycle_factory.create(lifecycle_type)
+                if self.env_lifecycle_factory.supports(lifecycle_type):
+                    env_lifecycles[lifecycle_type] = self.env_lifecycle_factory.create(lifecycle_type)
+        except BaseException:
+            try:
+                self.auth_provider.release_active_leases()
+            except BaseException as error:
+                logger.warning(
+                    "Failed to release MCP auth leases after lifecycle construction failure: %s",
+                    error,
+                )
+            raise
+
+        return data_lifecycles, env_lifecycles
 
     @property
     def sandbox(self) -> Sandbox | None:
