@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 authors = [{ name = "chatos@alibaba" }]
 requires-python = "<4.0,>=3.10"
 name = "rl-rock"
-version = "1.11.0.dev2026071515"
+version = "1.11.0.dev2026071518"
 description = "ROCK-Reinforcement Open Construction Kit"
 readme = "README.md"
 dependencies = [
@@ -49,7 +49,7 @@ admin = [
     "boto3",
     "ray[default]==2.43.0",
     "pip",
-    "cryptography==39.0.1",
+    "cryptography>=41.0",
     "fakeredis[json]",
     "kubernetes>=35.0.0",  # For K8S operator support
     "aiolimiter>=1.2.1",  # For rate limiting
@@ -93,7 +93,7 @@ model-service = [
 ]
 
 mcp = [
-    "scaffoldhub>=0.1.6; python_version >= '3.11' and python_version < '3.13'",
+    "scaffoldhub>=0.1.12; python_version >= '3.11' and python_version < '3.13'",
 ]
 
 
