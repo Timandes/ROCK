@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 1
 requires-python = ">=3.10, <4.0"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform != 'win32'",
@@ -4515,7 +4515,7 @@ wheels = [
 
 [[package]]
 name = "rl-rock"
-version = "1.10.0.dev2026070901"
+version = "1.11.0.dev2026071515"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -4697,7 +4697,7 @@ requires-dist = [
     { name = "rl-rock", extras = ["builder"], marker = "extra == 'all'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'admin'" },
     { name = "rl-rock", extras = ["rocklet"], marker = "extra == 'all'" },
-    { name = "scaffoldhub", marker = "python_full_version >= '3.11' and python_full_version < '3.13' and extra == 'mcp'", specifier = "==0.1.4", index = "https://artlab.alibaba-inc.com/1/pypi/simple" },
+    { name = "scaffoldhub", marker = "python_full_version >= '3.11' and python_full_version < '3.13' and extra == 'mcp'", specifier = ">=0.1.6", index = "https://artlab.alibaba-inc.com/1/pypi/simple" },
     { name = "sqlmodel", marker = "extra == 'admin'" },
     { name = "sqlmodel", marker = "extra == 'sandbox-actor'" },
     { name = "swebench", marker = "extra == 'builder'" },
@@ -4903,7 +4903,7 @@ wheels = [
 
 [[package]]
 name = "scaffoldhub"
-version = "0.1.4"
+version = "0.1.6"
 source = { registry = "https://artlab.alibaba-inc.com/1/pypi/simple" }
 dependencies = [
     { name = "circus", marker = "python_full_version >= '3.11' and python_full_version < '3.13'" },
@@ -4918,9 +4918,9 @@ dependencies = [
     { name = "slack-sdk", marker = "python_full_version >= '3.11' and python_full_version < '3.13'" },
     { name = "uvicorn", marker = "python_full_version >= '3.11' and python_full_version < '3.13'" },
 ]
-sdist = { url = "https://artlab.alibaba-inc.com/1/pypi/simple/scaffoldhub/scaffoldhub-0.1.4.tar.gz", hash = "sha256:a44bd553336c01ac3c9673811ebe333f5c5ec8652df3f145bb2ce0773daa22f1" }
+sdist = { url = "https://artlab.alibaba-inc.com/1/pypi/simple/scaffoldhub/scaffoldhub-0.1.6.tar.gz", hash = "sha256:f5ae399fcfaecbae07f00cbbf2cf4e0ad73b63e896b11751402027145e7661d7" }
 wheels = [
-    { url = "https://artlab.alibaba-inc.com/1/pypi/simple/scaffoldhub/scaffoldhub-0.1.4-py3-none-any.whl", hash = "sha256:5f87ca41d934b65e90f161c005ec03ec2bf6905e76cec82412fe3d38ac6790d0" },
+    { url = "https://artlab.alibaba-inc.com/1/pypi/simple/scaffoldhub/scaffoldhub-0.1.6-py3-none-any.whl", hash = "sha256:ef233ffa422c37c4efcf62afea6c717cbb782dd6822b0f0512c0765eb2aa6af2" },
 ]
 
 [[package]]

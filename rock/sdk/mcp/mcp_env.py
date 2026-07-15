@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from copy import deepcopy
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 def _load_scaffoldhub_components():
     try:
         from scaffoldhub.auth import AuthProvider
-        from scaffoldhub.tools.base import DataLifecycleFactory
+        from scaffoldhub.tools.base import DataLifecycleFactory, EnvLifecycleFactory
     except ImportError as error:
         raise ImportError("rock.sdk.mcp requires scaffoldhub. Install it with `pip install 'rl-rock[mcp]'`.") from error
 
@@ -23,7 +24,7 @@ def _load_scaffoldhub_components():
     except ImportError:
         SandboxAware = None
 
-    return AuthProvider, DataLifecycleFactory, SandboxAware
+    return AuthProvider, DataLifecycleFactory, EnvLifecycleFactory, SandboxAware
 
 
 def _snapshot_runtime_options(options: RockRuntimeOptions | None) -> RockRuntimeOptions:
@@ -67,19 +68,43 @@ class McpEnv:
             raise ValueError("servers must be a non-empty dict")
 
         self.running = False
+        self._starting = False
         self.urls = {}
         self.servers = deepcopy(servers)
         self.resolved_servers = {}
-        auth_provider_class, data_lifecycle_factory_class, sandbox_aware_class = _load_scaffoldhub_components()
+        (
+            auth_provider_class,
+            data_lifecycle_factory_class,
+            env_lifecycle_factory_class,
+            sandbox_aware_class,
+        ) = _load_scaffoldhub_components()
         self.auth_provider = auth_provider_class()
         self.data_lifecycle_factory = data_lifecycle_factory_class(auth_provider=self.auth_provider)
+        self.env_lifecycle_factory = env_lifecycle_factory_class()
         self.sandbox_aware_class = sandbox_aware_class
-        self.data_lifecycles: dict[str, Any] = {}
         self._rock_runtime = RockRuntime(options=_snapshot_runtime_options(runtime_options))
+        self.data_lifecycles, self.env_lifecycles = self._create_lifecycles()
 
-        for lifecycle_type in self.servers:
-            if self.data_lifecycle_factory.supports(lifecycle_type):
-                self.data_lifecycles[lifecycle_type] = self.data_lifecycle_factory.create(lifecycle_type)
+    def _create_lifecycles(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        data_lifecycles: dict[str, Any] = {}
+        env_lifecycles: dict[str, Any] = {}
+        try:
+            for lifecycle_type in self.servers:
+                if self.data_lifecycle_factory.supports(lifecycle_type):
+                    data_lifecycles[lifecycle_type] = self.data_lifecycle_factory.create(lifecycle_type)
+                if self.env_lifecycle_factory.supports(lifecycle_type):
+                    env_lifecycles[lifecycle_type] = self.env_lifecycle_factory.create(lifecycle_type)
+        except BaseException:
+            try:
+                self.auth_provider.release_active_leases()
+            except BaseException as error:
+                logger.warning(
+                    "Failed to release MCP auth leases after lifecycle construction failure: %s",
+                    error,
+                )
+            raise
+
+        return data_lifecycles, env_lifecycles
 
     @property
     def sandbox(self) -> Sandbox | None:
@@ -99,27 +124,58 @@ class McpEnv:
         pre-launch callback execution, MCP server launch, and SSE health checks
         all succeed.
         """
-        self.running = False
-        self.urls = {}
-        self.resolved_servers = {
-            server_name: self._resolve_server_config(server_name, server_config)
-            for server_name, server_config in self.servers.items()
-        }
-        urls = await self._rock_runtime.start(
-            self.resolved_servers,
-            before_launch=self._compose_before_launch(before_launch),
-        )
-        self.urls = urls
-        self.running = True
+        if self.running or self._starting:
+            raise RuntimeError("MCP environment has already been started")
 
-    def is_alive(self) -> bool:
-        """
-        Return the runtime state recorded by this facade.
+        self._starting = True
+        try:
+            self.running = False
+            self.urls = {}
+            start_failure_cleanup_started = False
 
-        Returns:
-            True after successful start, false after release.
-        """
-        return self.running
+            async def cleanup_before_runtime_stop() -> None:
+                nonlocal start_failure_cleanup_started
+                start_failure_cleanup_started = True
+                await self.release()
+
+            try:
+                self.resolved_servers = {
+                    server_name: self._resolve_server_config(server_name, server_config)
+                    for server_name, server_config in self.servers.items()
+                }
+                urls = await self._rock_runtime.start(
+                    self.resolved_servers,
+                    before_launch=self._compose_before_launch(before_launch),
+                    on_start_failure=cleanup_before_runtime_stop,
+                )
+            except (asyncio.CancelledError, Exception):
+                if not start_failure_cleanup_started:
+                    try:
+                        await self.release()
+                    except Exception as cleanup_error:
+                        logger.warning(
+                            "Failed to clean up MCP resources after startup failure: %s",
+                            cleanup_error,
+                        )
+                raise
+
+            self.urls = urls
+            self.running = True
+        finally:
+            self._starting = False
+
+    async def is_alive(self, key: str | None = None) -> bool:
+        """Return one environment status or aggregate all configured statuses."""
+        if key is not None:
+            lifecycle = self.env_lifecycles.get(key)
+            if lifecycle is None:
+                return True
+            return await lifecycle.is_alive()
+
+        results = []
+        for lifecycle in self.env_lifecycles.values():
+            results.append(await lifecycle.is_alive())
+        return self.running and all(results)
 
     async def init(self, data: dict) -> dict:
         """
@@ -200,18 +256,30 @@ class McpEnv:
         return dumped_data
 
     async def release(self) -> None:
-        """
-        Release the physical MCP runtime and any active ScaffoldHub auth leases.
+        """Release environment hooks, runtime resources, and auth leases."""
+        env_release_error: Exception | None = None
+        for lifecycle_type, lifecycle in self.env_lifecycles.items():
+            try:
+                await lifecycle.release()
+            except Exception as error:
+                logger.warning(
+                    "Failed to release environment lifecycle %s: %s",
+                    lifecycle_type,
+                    error,
+                )
+                if env_release_error is None:
+                    env_release_error = error
 
-        Data cleanup is intentionally handled by explicit reset calls.
-        """
         auth_release_error: Exception | None = None
         try:
-            if self.running:
+            if self.running or self._rock_runtime.sandbox is not None:
                 try:
                     await self._rock_runtime.stop()
                 except Exception as error:
-                    logger.warning("Failed to stop ROCK runtime during release: %s", error)
+                    logger.warning(
+                        "Failed to stop ROCK runtime during release: %s",
+                        error,
+                    )
 
             try:
                 self.auth_provider.release_active_leases()
@@ -223,11 +291,25 @@ class McpEnv:
             self.resolved_servers = {}
 
         if auth_release_error is not None:
+            if env_release_error is not None:
+                logger.warning(
+                    "Environment lifecycle release also failed: %s",
+                    env_release_error,
+                )
             raise RuntimeError("Failed to release MCP auth leases") from auth_release_error
 
-    def _compose_before_launch(self, before_launch: BeforeLaunchHook | None) -> BeforeLaunchHook:
+        if env_release_error is not None:
+            raise env_release_error
+
+    def _compose_before_launch(
+        self,
+        before_launch: BeforeLaunchHook | None,
+    ) -> BeforeLaunchHook:
         async def composed_before_launch(sandbox: Sandbox) -> None:
-            self._inject_sandbox_into_lifecycles(sandbox)
+            self._inject_sandbox_into_lifecycles(self.data_lifecycles, sandbox)
+            self._inject_sandbox_into_lifecycles(self.env_lifecycles, sandbox)
+            await self._start_env_lifecycles()
+
             if before_launch is None:
                 return
 
@@ -237,14 +319,22 @@ class McpEnv:
 
         return composed_before_launch
 
-    def _inject_sandbox_into_lifecycles(self, sandbox: Sandbox) -> None:
+    def _inject_sandbox_into_lifecycles(
+        self,
+        lifecycles: dict[str, Any],
+        sandbox: Sandbox,
+    ) -> None:
         sandbox_aware_class = self.sandbox_aware_class
         if sandbox_aware_class is None:
             return
 
-        for lifecycle in self.data_lifecycles.values():
+        for lifecycle in lifecycles.values():
             if isinstance(lifecycle, sandbox_aware_class):
                 lifecycle.set_sandbox(sandbox)
+
+    async def _start_env_lifecycles(self) -> None:
+        for lifecycle_type, lifecycle in self.env_lifecycles.items():
+            await lifecycle.start(self.resolved_servers[lifecycle_type])
 
     def _resolve_server_config(self, server_name: str, server_config: Any) -> Any:
         if not isinstance(server_config, dict):

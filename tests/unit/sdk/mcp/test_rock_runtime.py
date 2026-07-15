@@ -41,7 +41,7 @@ def test_rock_runtime_config_reads_defaults_and_numeric_values(monkeypatch):
     assert config.api_key == "rock-key"
     assert config.user_id == "user-001"
     assert config.base_url == "https://xrl.alibaba-inc.com"
-    assert config.image == "rock-instances-registry-vpc.cn-shanghai.cr.aliyuncs.com/instance/rock-mcp-base:v0.16.0"
+    assert config.image == "rock-instances-registry-vpc.cn-shanghai.cr.aliyuncs.com/instance/rock-mcp-base:v0.17.0"
     assert config.experiment_id == "mcpenv"
     assert config.cluster == "vpc-nt-a"
     assert config.cpus == 4.0
@@ -190,6 +190,117 @@ def test_rock_runtime_start_accepts_before_launch_hook():
 
     assert "before_launch" in signature.parameters
     assert signature.parameters["before_launch"].default is None
+
+
+def test_rock_runtime_runs_failure_cleanup_before_stopping_sandbox(monkeypatch):
+    events: list[str] = []
+
+    class RecordingSandbox:
+        sandbox_id = "sandbox-123"
+
+        def __init__(self, config):
+            self.config = config
+
+        async def start(self):
+            pass
+
+        async def execute(self, command):
+            return SimpleNamespace(exit_code=0)
+
+        async def write_file_by_path(self, content, path):
+            pass
+
+        async def stop(self):
+            events.append("runtime_stop")
+
+    monkeypatch.setattr(rock_runtime, "Sandbox", RecordingSandbox)
+    runtime = RockRuntime(
+        config=RockRuntimeConfig(
+            base_url="https://xrl.alibaba-inc.com",
+            api_key="rock-key",
+            image="image",
+            user_id="user-001",
+            experiment_id="experiment",
+            cluster="cluster",
+            cpus=1.0,
+            memory="1g",
+            auto_clear_seconds=60,
+        )
+    )
+
+    async def before_launch(_sandbox):
+        events.append("before_launch")
+        raise RuntimeError("hook failed")
+
+    async def on_start_failure():
+        events.append("failure_cleanup")
+
+    with pytest.raises(RockRuntimeError, match="hook failed"):
+        asyncio.run(
+            runtime.start(
+                {"calculator": {}},
+                before_launch=before_launch,
+                on_start_failure=on_start_failure,
+            )
+        )
+
+    assert events == ["before_launch", "failure_cleanup", "runtime_stop"]
+
+
+def test_rock_runtime_cancellation_cleans_up_before_stopping_sandbox(monkeypatch):
+    events: list[str] = []
+
+    class RecordingSandbox:
+        sandbox_id = "sandbox-123"
+
+        def __init__(self, config):
+            self.config = config
+
+        async def start(self):
+            pass
+
+        async def execute(self, command):
+            return SimpleNamespace(exit_code=0)
+
+        async def write_file_by_path(self, content, path):
+            pass
+
+        async def stop(self):
+            events.append("runtime_stop")
+
+    monkeypatch.setattr(rock_runtime, "Sandbox", RecordingSandbox)
+    runtime = RockRuntime(
+        config=RockRuntimeConfig(
+            base_url="https://xrl.alibaba-inc.com",
+            api_key="rock-key",
+            image="image",
+            user_id="user-001",
+            experiment_id="experiment",
+            cluster="cluster",
+            cpus=1.0,
+            memory="1g",
+            auto_clear_seconds=60,
+        )
+    )
+
+    async def before_launch(_sandbox):
+        events.append("before_launch")
+        raise asyncio.CancelledError
+
+    async def on_start_failure():
+        events.append("failure_cleanup")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            runtime.start(
+                {"calculator": {}},
+                before_launch=before_launch,
+                on_start_failure=on_start_failure,
+            )
+        )
+
+    assert events == ["before_launch", "failure_cleanup", "runtime_stop"]
+    assert runtime.sandbox is None
 
 
 def test_rock_runtime_exposes_raw_sandbox_property():
