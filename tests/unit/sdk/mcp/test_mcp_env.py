@@ -719,6 +719,47 @@ def test_mcp_env_reset_delegates_to_configured_lifecycles_without_stopping_runti
     assert env.resolved_servers == {"slack": slack_server_config()}
 
 
+def test_mcp_env_reset_only_resets_selected_lifecycles(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    slack_lifecycle = RecordingDataLifecycle()
+    git_lifecycle = RecordingDataLifecycle()
+    code_executor_lifecycle = AsyncRecordingDataLifecycle()
+    env.data_lifecycles = {
+        "slack": slack_lifecycle,
+        "git": git_lifecycle,
+        "code-executor": code_executor_lifecycle,
+    }
+
+    asyncio.run(env.reset(keys=["git", "code-executor"]))
+
+    assert slack_lifecycle.reset_calls == 0
+    assert git_lifecycle.reset_calls == 1
+    assert code_executor_lifecycle.reset_calls == 1
+
+
+def test_mcp_env_reset_with_empty_keys_is_noop(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingDataLifecycle()
+    env.data_lifecycles["slack"] = lifecycle
+
+    asyncio.run(env.reset(keys=[]))
+
+    assert lifecycle.reset_calls == 0
+
+
+def test_mcp_env_reset_ignores_unknown_keys(monkeypatch):
+    mcp_env = reload_mcp_env(monkeypatch)
+    env = mcp_env.McpEnv(servers={"slack": slack_server_config()})
+    lifecycle = RecordingDataLifecycle()
+    env.data_lifecycles["slack"] = lifecycle
+
+    asyncio.run(env.reset(keys=["unknown"]))
+
+    assert lifecycle.reset_calls == 0
+
+
 def test_mcp_env_reset_does_not_require_prior_init(monkeypatch):
     mcp_env = reload_mcp_env(monkeypatch)
     env = mcp_env.McpEnv(servers={"slack": slack_server_config()})

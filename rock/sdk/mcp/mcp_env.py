@@ -206,14 +206,22 @@ class McpEnv:
                 init_results[lifecycle_type] = result
         return init_results
 
-    async def reset(self) -> None:
+    async def reset(self, keys: list[str] | None = None) -> None:
         """
         Reset configured MCP environment data.
 
+        Args:
+            keys: Optional lifecycle names to reset. When omitted, all configured
+                data lifecycles are reset. An empty list performs no resets.
+
         This only delegates to configured data lifecycles. It does not stop the
-        ROCK runtime, clear URLs, or change the recorded running state.
+        ROCK runtime, clear URLs, or change the recorded running state. Unknown
+        lifecycle names are ignored.
         """
-        for lifecycle in self.data_lifecycles.values():
+        selected_keys = None if keys is None else set(keys)
+        for lifecycle_type, lifecycle in self.data_lifecycles.items():
+            if selected_keys is not None and lifecycle_type not in selected_keys:
+                continue
             result = lifecycle.reset()
             if inspect.isawaitable(result):
                 await result
