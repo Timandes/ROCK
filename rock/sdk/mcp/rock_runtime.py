@@ -67,7 +67,7 @@ class RockRuntimeConfig:
             api_key=api_key,
             image=os.getenv(
                 "ROCK_SANDBOX_IMAGE",
-                "rock-instances-registry-vpc.cn-shanghai.cr.aliyuncs.com/instance/rock-mcp-base:v0.20.0",
+                "rock-instances-registry-vpc.cn-shanghai.cr.aliyuncs.com/instance/rock-mcp-base:v0.20.1",
             ),
             user_id=user_id,
             experiment_id=os.getenv("ROCK_EXPERIMENT_ID", "mcpenv"),
